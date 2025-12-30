@@ -9,8 +9,11 @@ from PyQt5.QtGui import QFont
 from db import Database
 from models import ModelFactory
 from network import send_requests_async
+from export import export_to_markdown, export_to_json
+from logger import RequestLogger
 from datetime import datetime
 from typing import List, Dict, Optional
+from PyQt5.QtWidgets import QFileDialog
 
 
 class RequestThread(QThread):
@@ -39,6 +42,7 @@ class MainWindow(QMainWindow):
         self.model_factory = ModelFactory(self.db)
         self.temp_results = []  # Временная таблица результатов в памяти
         self.current_prompt_id = None
+        self.logger = RequestLogger()
         
         self.init_ui()
         self.load_saved_prompts()
@@ -118,6 +122,7 @@ class MainWindow(QMainWindow):
         self.results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.results_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.results_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.results_table.setSortingEnabled(True)
         main_layout.addWidget(self.results_table)
         
         # Кнопка сохранения результатов
@@ -145,6 +150,9 @@ class MainWindow(QMainWindow):
         # Меню "Результаты"
         results_menu = menubar.addMenu("Результаты")
         results_menu.addAction("Просмотр результатов", self.show_results_dialog)
+        results_menu.addSeparator()
+        results_menu.addAction("Экспорт в Markdown", self.export_to_markdown)
+        results_menu.addAction("Экспорт в JSON", self.export_to_json)
         
         # Меню "Настройки"
         settings_menu = menubar.addMenu("Настройки")
@@ -205,11 +213,15 @@ class MainWindow(QMainWindow):
         # Сохраняем промт в БД, если его еще нет
         if not self.current_prompt_id:
             self.current_prompt_id = self.db.add_prompt(prompt_text)
+            self.logger.log_prompt_saved(self.current_prompt_id)
         
         # Блокируем кнопку отправки и показываем прогресс
         self.send_button.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)  # Неопределенный прогресс
+        
+        # Сохраняем промт для логирования
+        self.current_prompt_text = prompt_text
         
         # Создаем поток для отправки запросов
         self.request_thread = RequestThread(active_models, prompt_text)
@@ -228,6 +240,17 @@ class MainWindow(QMainWindow):
         self.results_table.setRowCount(len(results))
         
         for row, result in enumerate(results):
+            # Логируем запрос
+            self.logger.log_request(
+                model_name=result['model_name'],
+                prompt=getattr(self, 'current_prompt_text', ''),
+                success=result.get('success', False),
+                response_text=result.get('response_text'),
+                error=result.get('error'),
+                tokens_used=result.get('tokens_used'),
+                response_time=result.get('response_time')
+            )
+            
             # Чекбокс для выбора
             checkbox = QCheckBox()
             checkbox.setChecked(False)
@@ -289,6 +312,7 @@ class MainWindow(QMainWindow):
             return
         
         self.db.save_results(selected_results)
+        self.logger.log_result_saved(len(selected_results))
         QMessageBox.information(self, "Успех", f"Сохранено результатов: {len(selected_results)}")
         
         # Очищаем временную таблицу
@@ -322,6 +346,78 @@ class MainWindow(QMainWindow):
         """Показ диалога настроек"""
         dialog = SettingsDialog(self.db, self)
         dialog.exec_()
+    
+    def export_to_markdown(self):
+        """Экспорт результатов в Markdown"""
+        if not self.temp_results:
+            QMessageBox.warning(self, "Предупреждение", "Нет результатов для экспорта!")
+            return
+        
+        # Фильтруем только успешные результаты
+        export_results = []
+        for row in range(self.results_table.rowCount()):
+            checkbox = self.results_table.cellWidget(row, 0)
+            if checkbox and checkbox.isChecked():
+                result = self.temp_results[row]
+                if result.get('success'):
+                    export_results.append({
+                        'model_name': result['model_name'],
+                        'response_text': result.get('response_text', ''),
+                        'date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'tokens_used': result.get('tokens_used'),
+                        'response_time': result.get('response_time')
+                    })
+        
+        if not export_results:
+            QMessageBox.warning(self, "Предупреждение", "Выберите результаты для экспорта!")
+            return
+        
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Сохранить как Markdown", "", "Markdown Files (*.md);;All Files (*)"
+        )
+        
+        if filename:
+            try:
+                export_to_markdown(export_results, filename)
+                QMessageBox.information(self, "Успех", f"Результаты экспортированы в {filename}")
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка", f"Ошибка при экспорте: {str(e)}")
+    
+    def export_to_json(self):
+        """Экспорт результатов в JSON"""
+        if not self.temp_results:
+            QMessageBox.warning(self, "Предупреждение", "Нет результатов для экспорта!")
+            return
+        
+        # Фильтруем только успешные результаты
+        export_results = []
+        for row in range(self.results_table.rowCount()):
+            checkbox = self.results_table.cellWidget(row, 0)
+            if checkbox and checkbox.isChecked():
+                result = self.temp_results[row]
+                if result.get('success'):
+                    export_results.append({
+                        'model_name': result['model_name'],
+                        'response_text': result.get('response_text', ''),
+                        'date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'tokens_used': result.get('tokens_used'),
+                        'response_time': result.get('response_time')
+                    })
+        
+        if not export_results:
+            QMessageBox.warning(self, "Предупреждение", "Выберите результаты для экспорта!")
+            return
+        
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Сохранить как JSON", "", "JSON Files (*.json);;All Files (*)"
+        )
+        
+        if filename:
+            try:
+                export_to_json(export_results, filename)
+                QMessageBox.information(self, "Успех", f"Результаты экспортированы в {filename}")
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка", f"Ошибка при экспорте: {str(e)}")
     
     def closeEvent(self, event):
         """Обработка закрытия приложения"""
@@ -425,7 +521,7 @@ class AddModelDialog(QDialog):
         
         layout.addWidget(QLabel("Тип API:"))
         self.type_combo = QComboBox()
-        self.type_combo.addItems(["openai", "deepseek", "groq"])
+        self.type_combo.addItems(["openai", "deepseek", "groq", "openrouter"])
         layout.addWidget(self.type_combo)
         
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -478,6 +574,7 @@ class PromptsDialog(QDialog):
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["ID", "Дата", "Промт", "Теги"])
         self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setSortingEnabled(True)
         layout.addWidget(self.table)
         
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
@@ -544,6 +641,7 @@ class ResultsDialog(QDialog):
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels(["ID", "Модель", "Ответ", "Дата", "Токены"])
         self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setSortingEnabled(True)
         layout.addWidget(self.table)
         
         buttons = QDialogButtonBox(QDialogButtonBox.Close)

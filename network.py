@@ -181,6 +181,81 @@ class DeepSeekHandler(APIHandler):
             }
 
 
+class OpenRouterHandler(APIHandler):
+    """Обработчик для OpenRouter API"""
+    
+    def send_request(self, prompt: str, api_key: str, model_name: str = "openai/gpt-3.5-turbo", timeout: int = 30) -> Dict:
+        """
+        Отправка запроса к OpenRouter API
+        
+        Args:
+            prompt: текст промта
+            api_key: API ключ OpenRouter
+            model_name: название модели (формат: provider/model-name, по умолчанию openai/gpt-3.5-turbo)
+            timeout: таймаут запроса в секундах
+            
+        Returns:
+            Словарь с результатом запроса
+        """
+        start_time = time.time()
+        
+        try:
+            url = "https://openrouter.ai/api/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com/your-repo",  # Опционально
+                "X-Title": "ChatList"  # Опционально
+            }
+            data = {
+                "model": model_name,
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.7
+            }
+            
+            response = requests.post(url, json=data, headers=headers, timeout=timeout)
+            response_time = time.time() - start_time
+            
+            if response.status_code == 200:
+                result = response.json()
+                response_text = result['choices'][0]['message']['content']
+                tokens_used = result.get('usage', {}).get('total_tokens')
+                
+                return {
+                    'success': True,
+                    'response_text': response_text,
+                    'tokens_used': tokens_used,
+                    'response_time': response_time
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': f"API Error: {response.status_code} - {response.text}",
+                    'response_time': response_time
+                }
+                
+        except requests.exceptions.Timeout:
+            return {
+                'success': False,
+                'error': f"Timeout: запрос превысил {timeout} секунд",
+                'response_time': time.time() - start_time
+            }
+        except requests.exceptions.RequestException as e:
+            return {
+                'success': False,
+                'error': f"Network Error: {str(e)}",
+                'response_time': time.time() - start_time
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f"Unexpected Error: {str(e)}",
+                'response_time': time.time() - start_time
+            }
+
+
 class GroqHandler(APIHandler):
     """Обработчик для Groq API"""
     
@@ -259,7 +334,7 @@ def get_handler_by_type(model_type: str) -> Optional[APIHandler]:
     Получение обработчика API по типу модели
     
     Args:
-        model_type: тип модели (openai, deepseek, groq)
+        model_type: тип модели (openai, deepseek, groq, openrouter)
         
     Returns:
         Экземпляр соответствующего обработчика или None
@@ -267,7 +342,8 @@ def get_handler_by_type(model_type: str) -> Optional[APIHandler]:
     handlers = {
         'openai': OpenAIHandler(),
         'deepseek': DeepSeekHandler(),
-        'groq': GroqHandler()
+        'groq': GroqHandler(),
+        'openrouter': OpenRouterHandler()
     }
     return handlers.get(model_type.lower())
 
