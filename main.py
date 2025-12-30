@@ -61,6 +61,7 @@ class MainWindow(QMainWindow):
         prompt_layout = QVBoxLayout()
         prompt_label = QLabel("Введите промт:")
         prompt_label.setFont(QFont("Arial", 10, QFont.Bold))
+        prompt_label.setFixedHeight(20)
         prompt_layout.addWidget(prompt_label)
         
         # Выбор сохраненного промта
