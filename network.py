@@ -6,8 +6,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 from dotenv import load_dotenv
 
-# Загружаем переменные окружения из .env файла
-load_dotenv()
+# Загружаем переменные окружения только из .env.local файла
+load_dotenv('.env.local')
 
 
 class APIHandler(ABC):
