@@ -6,7 +6,7 @@ class Model:
     """Класс для представления модели нейросети"""
     
     def __init__(self, model_id: int, name: str, api_url: str, api_id: str, 
-                 model_type: str, is_active: int, db: Database):
+                 model_type: str, is_active: int, db: Database, api_model_id: str = None):
         """
         Инициализация модели
         
@@ -18,11 +18,13 @@ class Model:
             model_type: тип API (openai, deepseek, groq)
             is_active: активна ли модель (1 - да, 0 - нет)
             db: экземпляр класса Database
+            api_model_id: идентификатор модели для API (опционально)
         """
         self.id = model_id
         self.name = name
         self.api_url = api_url
         self.api_id = api_id
+        self.api_model_id = api_model_id
         self.model_type = model_type
         self.is_active = is_active
         self.db = db
@@ -46,7 +48,8 @@ class Model:
             api_id=data['api_id'],
             model_type=data['model_type'],
             is_active=data['is_active'],
-            db=db
+            db=db,
+            api_model_id=data.get('api_model_id')
         )
     
     def to_dict(self) -> Dict:
@@ -61,6 +64,7 @@ class Model:
             'name': self.name,
             'api_url': self.api_url,
             'api_id': self.api_id,
+            'api_model_id': self.api_model_id,
             'model_type': self.model_type,
             'is_active': self.is_active
         }
@@ -124,7 +128,7 @@ class ModelFactory:
         return None
     
     def add_model(self, name: str, api_url: str, api_id: str, 
-                  model_type: str, is_active: int = 1) -> Model:
+                  model_type: str, api_model_id: str = None, is_active: int = 1) -> Model:
         """
         Добавление новой модели
         
@@ -133,11 +137,12 @@ class ModelFactory:
             api_url: URL API
             api_id: имя переменной окружения для API ключа
             model_type: тип API (openai, deepseek, groq)
+            api_model_id: идентификатор модели для API (опционально)
             is_active: активна ли модель (1 - да, 0 - нет)
             
         Returns:
             Созданная модель
         """
-        model_id = self.db.add_model(name, api_url, api_id, model_type, is_active)
+        model_id = self.db.add_model(name, api_url, api_id, model_type, api_model_id, is_active)
         return self.get_model_by_id(model_id)
 

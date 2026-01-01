@@ -441,16 +441,31 @@ class ModelsDialog(QDialog):
         
         layout = QVBoxLayout()
         
-        # Кнопка добавления модели
+        # Кнопки управления моделями
+        buttons_top_layout = QHBoxLayout()
         add_button = QPushButton("Добавить модель")
         add_button.clicked.connect(self.add_model)
-        layout.addWidget(add_button)
+        buttons_top_layout.addWidget(add_button)
+        
+        edit_button = QPushButton("Редактировать модель")
+        edit_button.clicked.connect(self.edit_model)
+        buttons_top_layout.addWidget(edit_button)
+        
+        delete_button = QPushButton("Удалить модель")
+        delete_button.clicked.connect(self.delete_model)
+        delete_button.setStyleSheet("background-color: #f44336; color: white; padding: 5px;")
+        buttons_top_layout.addWidget(delete_button)
+        
+        buttons_top_layout.addStretch()
+        layout.addLayout(buttons_top_layout)
         
         # Таблица моделей
         self.table = QTableWidget()
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels(["ID", "Название", "API URL", "API ID", "Активна"])
         self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SingleSelection)
         layout.addWidget(self.table)
         
         # Кнопки управления
@@ -490,6 +505,49 @@ class ModelsDialog(QDialog):
         dialog = AddModelDialog(self.db, self.model_factory, self)
         if dialog.exec_() == QDialog.Accepted:
             self.load_models()
+    
+    def edit_model(self):
+        """Редактирование выбранной модели"""
+        selected_rows = self.table.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.warning(self, "Предупреждение", "Выберите модель для редактирования!")
+            return
+        
+        row = selected_rows[0].row()
+        model_id = int(self.table.item(row, 0).text())
+        model = self.model_factory.get_model_by_id(model_id)
+        
+        if not model:
+            QMessageBox.warning(self, "Ошибка", "Модель не найдена!")
+            return
+        
+        dialog = EditModelDialog(self.db, self.model_factory, model, self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.load_models()
+    
+    def delete_model(self):
+        """Удаление выбранной модели"""
+        selected_rows = self.table.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.warning(self, "Предупреждение", "Выберите модель для удаления!")
+            return
+        
+        row = selected_rows[0].row()
+        model_id = int(self.table.item(row, 0).text())
+        model_name = self.table.item(row, 1).text()
+        
+        reply = QMessageBox.question(
+            self, 
+            "Подтверждение удаления",
+            f"Вы уверены, что хотите удалить модель '{model_name}'?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            self.db.delete_model(model_id)
+            QMessageBox.information(self, "Успех", "Модель удалена!")
+            self.load_models()
 
 
 class AddModelDialog(QDialog):
@@ -503,26 +561,41 @@ class AddModelDialog(QDialog):
     
     def init_ui(self):
         self.setWindowTitle("Добавить модель")
-        self.setGeometry(250, 250, 500, 300)
+        self.setGeometry(250, 250, 500, 400)
         
         layout = QVBoxLayout()
         
-        layout.addWidget(QLabel("Название модели:"))
+        # 1. Название модели
+        layout.addWidget(QLabel("Название:"))
         self.name_edit = QLineEdit()
         layout.addWidget(self.name_edit)
         
+        # 2. API URL
         layout.addWidget(QLabel("API URL:"))
         self.url_edit = QLineEdit()
         layout.addWidget(self.url_edit)
         
-        layout.addWidget(QLabel("API ID (имя переменной в .env):"))
+        # 3. API ID (model) - идентификатор модели для API
+        layout.addWidget(QLabel("API ID (model):"))
+        self.api_model_id_edit = QLineEdit()
+        self.api_model_id_edit.setPlaceholderText("Например: gpt-4-turbo или openai/gpt-4-turbo")
+        layout.addWidget(self.api_model_id_edit)
+        
+        # 4. Имя переменной окружения с API-ключом
+        layout.addWidget(QLabel("Имя переменной окружения с API-ключом:"))
         self.api_id_edit = QLineEdit()
         layout.addWidget(self.api_id_edit)
         
+        # Тип API
         layout.addWidget(QLabel("Тип API:"))
         self.type_combo = QComboBox()
         self.type_combo.addItems(["openai", "deepseek", "groq", "openrouter"])
         layout.addWidget(self.type_combo)
+        
+        # 5. Чекбокс "Активна"
+        self.active_checkbox = QCheckBox("Активна")
+        self.active_checkbox.setChecked(True)  # По умолчанию активна
+        layout.addWidget(self.active_checkbox)
         
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
@@ -535,14 +608,106 @@ class AddModelDialog(QDialog):
         """Принятие диалога и добавление модели"""
         name = self.name_edit.text().strip()
         url = self.url_edit.text().strip()
+        api_model_id = self.api_model_id_edit.text().strip() or None
         api_id = self.api_id_edit.text().strip()
         model_type = self.type_combo.currentText()
+        is_active = 1 if self.active_checkbox.isChecked() else 0
         
         if not all([name, url, api_id]):
-            QMessageBox.warning(self, "Ошибка", "Заполните все поля!")
+            QMessageBox.warning(self, "Ошибка", "Заполните обязательные поля: Название, API URL и Имя переменной окружения!")
             return
         
-        self.model_factory.add_model(name, url, api_id, model_type)
+        self.model_factory.add_model(name, url, api_id, model_type, api_model_id, is_active)
+        super().accept()
+
+
+class EditModelDialog(QDialog):
+    """Диалог редактирования модели"""
+    
+    def __init__(self, db: Database, model_factory: ModelFactory, model, parent=None):
+        super().__init__(parent)
+        self.db = db
+        self.model_factory = model_factory
+        self.model = model
+        self.init_ui()
+        self.load_model_data()
+    
+    def init_ui(self):
+        self.setWindowTitle("Редактировать модель")
+        self.setGeometry(250, 250, 500, 400)
+        
+        layout = QVBoxLayout()
+        
+        # 1. Название модели
+        layout.addWidget(QLabel("Название:"))
+        self.name_edit = QLineEdit()
+        layout.addWidget(self.name_edit)
+        
+        # 2. API URL
+        layout.addWidget(QLabel("API URL:"))
+        self.url_edit = QLineEdit()
+        layout.addWidget(self.url_edit)
+        
+        # 3. API ID (model) - идентификатор модели для API
+        layout.addWidget(QLabel("API ID (model):"))
+        self.api_model_id_edit = QLineEdit()
+        self.api_model_id_edit.setPlaceholderText("Например: gpt-4-turbo или openai/gpt-4-turbo")
+        layout.addWidget(self.api_model_id_edit)
+        
+        # 4. Имя переменной окружения с API-ключом
+        layout.addWidget(QLabel("Имя переменной окружения с API-ключом:"))
+        self.api_id_edit = QLineEdit()
+        layout.addWidget(self.api_id_edit)
+        
+        # 5. Чекбокс "Активна"
+        self.active_checkbox = QCheckBox("Активна")
+        layout.addWidget(self.active_checkbox)
+        
+        # Тип API (только для информации, не редактируется)
+        type_layout = QHBoxLayout()
+        type_layout.addWidget(QLabel("Тип API (только для просмотра):"))
+        self.type_label = QLabel(self.model.model_type)
+        self.type_label.setStyleSheet("font-weight: bold;")
+        type_layout.addWidget(self.type_label)
+        type_layout.addStretch()
+        layout.addLayout(type_layout)
+        
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        
+        self.setLayout(layout)
+    
+    def load_model_data(self):
+        """Загрузка данных модели в поля формы"""
+        self.name_edit.setText(self.model.name)
+        self.url_edit.setText(self.model.api_url)
+        self.api_model_id_edit.setText(self.model.api_model_id or "")
+        self.api_id_edit.setText(self.model.api_id)
+        self.active_checkbox.setChecked(self.model.is_active == 1)
+    
+    def accept(self):
+        """Принятие диалога и обновление модели"""
+        name = self.name_edit.text().strip()
+        url = self.url_edit.text().strip()
+        api_model_id = self.api_model_id_edit.text().strip() or None
+        api_id = self.api_id_edit.text().strip()
+        is_active = 1 if self.active_checkbox.isChecked() else 0
+        
+        if not all([name, url, api_id]):
+            QMessageBox.warning(self, "Ошибка", "Заполните обязательные поля: Название, API URL и Имя переменной окружения!")
+            return
+        
+        self.db.update_model(
+            self.model.id, 
+            name, 
+            url, 
+            api_id, 
+            self.model.model_type, 
+            api_model_id, 
+            is_active
+        )
         super().accept()
 
 

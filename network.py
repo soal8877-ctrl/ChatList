@@ -395,8 +395,19 @@ def send_requests_async(models: List, prompt: str, timeout: int = 30) -> List[Di
                 'response_time': 0
             }
         
+        # Определяем имя модели для запроса
+        # Если указан api_model_id, используем его, иначе значение по умолчанию для типа API
+        default_models = {
+            'openai': 'gpt-3.5-turbo',
+            'deepseek': 'deepseek-chat',
+            'openrouter': 'openai/gpt-3.5-turbo',
+            'groq': 'llama2-70b-4096'
+        }
+        
+        model_name = model.api_model_id if model.api_model_id else default_models.get(model.model_type, 'gpt-3.5-turbo')
+        
         # Отправляем запрос
-        result = handler.send_request(prompt, api_key, timeout=timeout)
+        result = handler.send_request(prompt, api_key, model_name, timeout=timeout)
         
         # Добавляем информацию о модели к результату
         result['model_id'] = model.id

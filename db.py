@@ -48,10 +48,18 @@ class Database:
                 name TEXT NOT NULL UNIQUE,
                 api_url TEXT NOT NULL,
                 api_id TEXT NOT NULL,
+                api_model_id TEXT,
                 is_active INTEGER NOT NULL DEFAULT 1,
                 model_type TEXT NOT NULL
             )
         """)
+        
+        # Миграция: добавляем поле api_model_id, если его нет
+        try:
+            cursor.execute("ALTER TABLE models ADD COLUMN api_model_id TEXT")
+        except sqlite3.OperationalError:
+            # Поле уже существует, пропускаем
+            pass
         
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_models_active ON models(is_active)
@@ -166,7 +174,7 @@ class Database:
     
     # Методы для работы с моделями
     def add_model(self, name: str, api_url: str, api_id: str, 
-                  model_type: str, is_active: int = 1) -> int:
+                  model_type: str, api_model_id: str = None, is_active: int = 1) -> int:
         """
         Добавление модели в базу данных
         
@@ -175,6 +183,7 @@ class Database:
             api_url: URL API
             api_id: имя переменной окружения для API ключа
             model_type: тип API (openai, deepseek, groq)
+            api_model_id: идентификатор модели для API (опционально)
             is_active: активна ли модель (1 - да, 0 - нет)
             
         Returns:
@@ -182,9 +191,9 @@ class Database:
         """
         cursor = self.conn.cursor()
         cursor.execute("""
-            INSERT INTO models (name, api_url, api_id, is_active, model_type)
-            VALUES (?, ?, ?, ?, ?)
-        """, (name, api_url, api_id, is_active, model_type))
+            INSERT INTO models (name, api_url, api_id, api_model_id, is_active, model_type)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (name, api_url, api_id, api_model_id, is_active, model_type))
         self.conn.commit()
         return cursor.lastrowid
     
@@ -240,6 +249,46 @@ class Database:
         cursor.execute("SELECT * FROM models WHERE id = ?", (model_id,))
         row = cursor.fetchone()
         return dict(row) if row else None
+    
+    def update_model(self, model_id: int, name: str, api_url: str, api_id: str, 
+                     model_type: str, api_model_id: str = None, is_active: int = None):
+        """
+        Обновление данных модели
+        
+        Args:
+            model_id: ID модели
+            name: новое название модели
+            api_url: новый URL API
+            api_id: новое имя переменной окружения для API ключа
+            model_type: новый тип API
+            api_model_id: идентификатор модели для API (опционально)
+            is_active: активна ли модель (1 - да, 0 - нет) (опционально)
+        """
+        cursor = self.conn.cursor()
+        if is_active is not None:
+            cursor.execute("""
+                UPDATE models 
+                SET name = ?, api_url = ?, api_id = ?, model_type = ?, api_model_id = ?, is_active = ?
+                WHERE id = ?
+            """, (name, api_url, api_id, model_type, api_model_id, is_active, model_id))
+        else:
+            cursor.execute("""
+                UPDATE models 
+                SET name = ?, api_url = ?, api_id = ?, model_type = ?, api_model_id = ?
+                WHERE id = ?
+            """, (name, api_url, api_id, model_type, api_model_id, model_id))
+        self.conn.commit()
+    
+    def delete_model(self, model_id: int):
+        """
+        Удаление модели из базы данных
+        
+        Args:
+            model_id: ID модели для удаления
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM models WHERE id = ?", (model_id,))
+        self.conn.commit()
     
     # Методы для работы с результатами
     def save_results(self, results_list: List[Dict]):
