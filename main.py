@@ -123,6 +123,7 @@ class MainWindow(QMainWindow):
         self.results_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.results_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.results_table.setSortingEnabled(True)
+        self.results_table.setWordWrap(True)  # Включаем перенос слов
         main_layout.addWidget(self.results_table)
         
         # Кнопка сохранения результатов
@@ -287,13 +288,18 @@ class MainWindow(QMainWindow):
             
             response_item = QTableWidgetItem(response_text)
             response_item.setFlags(response_item.flags() & ~Qt.ItemIsEditable)
+            # Включаем перенос текста для ячейки с ответом
+            response_item.setTextAlignment(Qt.AlignTop | Qt.AlignLeft)
             self.results_table.setItem(row, 2, response_item)
         
         # Включаем кнопку сохранения
         self.save_results_button.setEnabled(True)
         
-        # Автоматически подгоняем высоту строк
+        # Автоматически подгоняем высоту строк для многострочного текста
         self.results_table.resizeRowsToContents()
+        # Устанавливаем минимальную высоту строки для лучшей читаемости
+        for row in range(self.results_table.rowCount()):
+            self.results_table.setRowHeight(row, max(50, self.results_table.rowHeight(row)))
     
     def save_selected_results(self):
         """Сохранение выбранных результатов в базу данных"""
