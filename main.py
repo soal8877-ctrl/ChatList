@@ -3,7 +3,8 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                                QHBoxLayout, QTextEdit, QPushButton, QTableWidget, 
                                QTableWidgetItem, QComboBox, QCheckBox, QLabel, 
                                QMessageBox, QMenuBar, QMenu, QDialog, QDialogButtonBox,
-                               QLineEdit, QHeaderView, QProgressBar, QInputDialog)
+                               QLineEdit, QHeaderView, QProgressBar, QInputDialog,
+                               QTextBrowser)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QFont
 from db import Database
@@ -116,11 +117,13 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(results_label)
         
         self.results_table = QTableWidget()
-        self.results_table.setColumnCount(3)
-        self.results_table.setHorizontalHeaderLabels(["Выбрать", "Модель", "Ответ"])
-        self.results_table.horizontalHeader().setStretchLastSection(True)
+        self.results_table.setColumnCount(4)
+        self.results_table.setHorizontalHeaderLabels(["Выбрать", "Модель", "Ответ", "Действия"])
+        self.results_table.horizontalHeader().setStretchLastSection(False)
         self.results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.results_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.results_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.results_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.results_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.results_table.setSortingEnabled(True)
         self.results_table.setWordWrap(True)  # Включаем перенос слов
@@ -291,6 +294,18 @@ class MainWindow(QMainWindow):
             # Включаем перенос текста для ячейки с ответом
             response_item.setTextAlignment(Qt.AlignTop | Qt.AlignLeft)
             self.results_table.setItem(row, 2, response_item)
+            
+            # Кнопка "Открыть" для просмотра ответа в markdown
+            if result.get('success'):
+                open_button = QPushButton("Открыть")
+                open_button.setStyleSheet("background-color: #2196F3; color: white; padding: 5px;")
+                open_button.clicked.connect(lambda checked, r=row: self.open_response_markdown(r))
+                self.results_table.setCellWidget(row, 3, open_button)
+            else:
+                # Для ошибок кнопка не нужна
+                empty_item = QTableWidgetItem("")
+                empty_item.setFlags(empty_item.flags() & ~Qt.ItemIsEditable)
+                self.results_table.setItem(row, 3, empty_item)
         
         # Включаем кнопку сохранения
         self.save_results_button.setEnabled(True)
@@ -340,6 +355,22 @@ class MainWindow(QMainWindow):
         self.results_table.setRowCount(0)
         self.current_prompt_id = None
         self.save_results_button.setEnabled(False)
+    
+    def open_response_markdown(self, row: int):
+        """Открытие ответа нейросети в форматированном markdown"""
+        if row >= len(self.temp_results):
+            return
+        
+        result = self.temp_results[row]
+        if not result.get('success'):
+            QMessageBox.warning(self, "Предупреждение", "Нельзя открыть ответ с ошибкой!")
+            return
+        
+        response_text = result.get('response_text', '')
+        model_name = result.get('model_name', 'Неизвестная модель')
+        
+        dialog = MarkdownViewDialog(response_text, model_name, self)
+        dialog.exec_()
     
     def show_models_dialog(self):
         """Показ диалога управления моделями"""
@@ -900,6 +931,40 @@ class SettingsDialog(QDialog):
         if timeout:
             self.db.set_setting('default_timeout', timeout)
         self.accept()
+
+
+class MarkdownViewDialog(QDialog):
+    """Диалог для просмотра ответа нейросети в форматированном markdown"""
+    
+    def __init__(self, response_text: str, model_name: str, parent=None):
+        super().__init__(parent)
+        self.response_text = response_text
+        self.model_name = model_name
+        self.init_ui()
+    
+    def init_ui(self):
+        self.setWindowTitle(f"Ответ модели: {self.model_name}")
+        self.setGeometry(200, 200, 900, 700)
+        
+        layout = QVBoxLayout()
+        
+        # Заголовок с названием модели
+        header_label = QLabel(f"Ответ модели: {self.model_name}")
+        header_label.setFont(QFont("Arial", 12, QFont.Bold))
+        layout.addWidget(header_label)
+        
+        # Область для отображения markdown
+        self.markdown_viewer = QTextBrowser()
+        self.markdown_viewer.setMarkdown(self.response_text)
+        self.markdown_viewer.setOpenExternalLinks(True)  # Разрешаем открытие ссылок
+        layout.addWidget(self.markdown_viewer)
+        
+        # Кнопки
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(self.accept)
+        layout.addWidget(buttons)
+        
+        self.setLayout(layout)
 
 
 def main():
