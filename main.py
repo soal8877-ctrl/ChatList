@@ -240,7 +240,7 @@ class MainWindow(QMainWindow):
         self.results_table.setRowCount(len(results))
         
         for row, result in enumerate(results):
-            # Логируем запрос
+            # Логируем запрос с техническими деталями
             self.logger.log_request(
                 model_name=result['model_name'],
                 prompt=getattr(self, 'current_prompt_text', ''),
@@ -248,7 +248,17 @@ class MainWindow(QMainWindow):
                 response_text=result.get('response_text'),
                 error=result.get('error'),
                 tokens_used=result.get('tokens_used'),
-                response_time=result.get('response_time')
+                response_time=result.get('response_time'),
+                url=result.get('url'),
+                api_model_id=result.get('api_model_id'),
+                model_type=result.get('model_type'),
+                http_status=result.get('http_status'),
+                request_model=result.get('request_model'),
+                temperature=result.get('temperature'),
+                messages_length=result.get('messages_length'),
+                prompt_tokens=result.get('prompt_tokens'),
+                completion_tokens=result.get('completion_tokens'),
+                error_type=result.get('error_type')
             )
             
             # Чекбокс для выбора

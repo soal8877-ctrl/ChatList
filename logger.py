@@ -49,29 +49,87 @@ class RequestLogger:
     
     def log_request(self, model_name: str, prompt: str, success: bool, 
                    response_text: Optional[str] = None, error: Optional[str] = None,
-                   tokens_used: Optional[int] = None, response_time: Optional[float] = None):
+                   tokens_used: Optional[int] = None, response_time: Optional[float] = None,
+                   url: Optional[str] = None, api_model_id: Optional[str] = None,
+                   model_type: Optional[str] = None, http_status: Optional[int] = None,
+                   request_model: Optional[str] = None, temperature: Optional[float] = None,
+                   messages_length: Optional[int] = None, prompt_tokens: Optional[int] = None,
+                   completion_tokens: Optional[int] = None, error_type: Optional[str] = None):
         """
-        Логирование запроса к API
+        Логирование запроса к API с техническими деталями
         
         Args:
-            model_name: название модели
+            model_name: название модели (отображаемое имя)
             prompt: текст промта
             success: успешность запроса
             response_text: текст ответа (если успешно)
             error: текст ошибки (если неуспешно)
-            tokens_used: количество токенов
+            tokens_used: общее количество токенов
             response_time: время ответа в секундах
+            url: URL эндпоинта API
+            api_model_id: идентификатор модели для API
+            model_type: тип API (openai, deepseek, groq, openrouter)
+            http_status: HTTP статус код ответа
+            request_model: идентификатор модели в запросе
+            temperature: значение temperature в запросе
+            messages_length: количество сообщений в запросе
+            prompt_tokens: количество токенов в промте
+            completion_tokens: количество токенов в ответе
+            error_type: тип ошибки (timeout, network, api_error)
         """
+        # Основная информация
         log_message = f"Request to {model_name} | Prompt: {prompt[:100]}... | "
         
+        # Технические детали запроса
+        tech_details = []
+        if url:
+            tech_details.append(f"URL: {url}")
+        if api_model_id:
+            tech_details.append(f"API Model ID: {api_model_id}")
+        if model_type:
+            tech_details.append(f"API Type: {model_type}")
+        if request_model:
+            tech_details.append(f"Request Model: {request_model}")
+        if temperature is not None:
+            tech_details.append(f"Temperature: {temperature}")
+        if messages_length is not None:
+            tech_details.append(f"Messages: {messages_length}")
+        
+        if tech_details:
+            log_message += " | " + " | ".join(tech_details)
+        
+        # Результат запроса
         if success:
-            log_message += f"SUCCESS | Response length: {len(response_text) if response_text else 0} chars"
+            log_message += " | SUCCESS"
+            if http_status:
+                log_message += f" | HTTP Status: {http_status}"
+            if response_text:
+                log_message += f" | Response length: {len(response_text)} chars"
+            
+            # Детализация токенов
+            token_details = []
+            if prompt_tokens is not None:
+                token_details.append(f"Prompt tokens: {prompt_tokens}")
+            if completion_tokens is not None:
+                token_details.append(f"Completion tokens: {completion_tokens}")
             if tokens_used:
-                log_message += f" | Tokens: {tokens_used}"
+                token_details.append(f"Total tokens: {tokens_used}")
+            
+            if token_details:
+                log_message += " | " + " | ".join(token_details)
+            
             if response_time:
                 log_message += f" | Time: {response_time:.2f}s"
         else:
-            log_message += f"FAILED | Error: {error}"
+            log_message += " | FAILED"
+            if error_type:
+                log_message += f" | Error Type: {error_type}"
+            if http_status:
+                log_message += f" | HTTP Status: {http_status}"
+            if error:
+                log_message += f" | Error: {error}"
+            if response_time:
+                log_message += f" | Time: {response_time:.2f}s"
         
         self.logger.info(log_message)
     

@@ -52,9 +52,9 @@ class OpenAIHandler(APIHandler):
             Словарь с результатом запроса
         """
         start_time = time.time()
+        url = "https://api.openai.com/v1/chat/completions"
         
         try:
-            url = "https://api.openai.com/v1/chat/completions"
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
@@ -73,38 +73,69 @@ class OpenAIHandler(APIHandler):
             if response.status_code == 200:
                 result = response.json()
                 response_text = result['choices'][0]['message']['content']
-                tokens_used = result.get('usage', {}).get('total_tokens')
+                usage = result.get('usage', {})
+                tokens_used = usage.get('total_tokens')
+                prompt_tokens = usage.get('prompt_tokens')
+                completion_tokens = usage.get('completion_tokens')
                 
                 return {
                     'success': True,
                     'response_text': response_text,
                     'tokens_used': tokens_used,
-                    'response_time': response_time
+                    'prompt_tokens': prompt_tokens,
+                    'completion_tokens': completion_tokens,
+                    'response_time': response_time,
+                    'http_status': response.status_code,
+                    'url': url,
+                    'request_model': model_name,
+                    'temperature': data.get('temperature'),
+                    'messages_length': len(data.get('messages', []))
                 }
             else:
                 return {
                     'success': False,
                     'error': f"API Error: {response.status_code} - {response.text}",
-                    'response_time': response_time
+                    'response_time': response_time,
+                    'http_status': response.status_code,
+                    'error_type': 'api_error',
+                    'url': url,
+                    'request_model': model_name,
+                    'temperature': data.get('temperature'),
+                    'messages_length': len(data.get('messages', []))
                 }
                 
         except requests.exceptions.Timeout:
             return {
                 'success': False,
                 'error': f"Timeout: запрос превысил {timeout} секунд",
-                'response_time': time.time() - start_time
+                'response_time': time.time() - start_time,
+                'error_type': 'timeout',
+                'url': url,
+                'request_model': model_name,
+                'temperature': 0.7,
+                'messages_length': 1
             }
         except requests.exceptions.RequestException as e:
             return {
                 'success': False,
                 'error': f"Network Error: {str(e)}",
-                'response_time': time.time() - start_time
+                'response_time': time.time() - start_time,
+                'error_type': 'network_error',
+                'url': url,
+                'request_model': model_name,
+                'temperature': 0.7,
+                'messages_length': 1
             }
         except Exception as e:
             return {
                 'success': False,
                 'error': f"Unexpected Error: {str(e)}",
-                'response_time': time.time() - start_time
+                'response_time': time.time() - start_time,
+                'error_type': 'unexpected_error',
+                'url': url,
+                'request_model': model_name,
+                'temperature': 0.7,
+                'messages_length': 1
             }
 
 
@@ -125,9 +156,9 @@ class DeepSeekHandler(APIHandler):
             Словарь с результатом запроса
         """
         start_time = time.time()
+        url = "https://api.deepseek.com/v1/chat/completions"
         
         try:
-            url = "https://api.deepseek.com/v1/chat/completions"
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
@@ -146,38 +177,69 @@ class DeepSeekHandler(APIHandler):
             if response.status_code == 200:
                 result = response.json()
                 response_text = result['choices'][0]['message']['content']
-                tokens_used = result.get('usage', {}).get('total_tokens')
+                usage = result.get('usage', {})
+                tokens_used = usage.get('total_tokens')
+                prompt_tokens = usage.get('prompt_tokens')
+                completion_tokens = usage.get('completion_tokens')
                 
                 return {
                     'success': True,
                     'response_text': response_text,
                     'tokens_used': tokens_used,
-                    'response_time': response_time
+                    'prompt_tokens': prompt_tokens,
+                    'completion_tokens': completion_tokens,
+                    'response_time': response_time,
+                    'http_status': response.status_code,
+                    'url': url,
+                    'request_model': model_name,
+                    'temperature': data.get('temperature'),
+                    'messages_length': len(data.get('messages', []))
                 }
             else:
                 return {
                     'success': False,
                     'error': f"API Error: {response.status_code} - {response.text}",
-                    'response_time': response_time
+                    'response_time': response_time,
+                    'http_status': response.status_code,
+                    'error_type': 'api_error',
+                    'url': url,
+                    'request_model': model_name,
+                    'temperature': data.get('temperature'),
+                    'messages_length': len(data.get('messages', []))
                 }
                 
         except requests.exceptions.Timeout:
             return {
                 'success': False,
                 'error': f"Timeout: запрос превысил {timeout} секунд",
-                'response_time': time.time() - start_time
+                'response_time': time.time() - start_time,
+                'error_type': 'timeout',
+                'url': url,
+                'request_model': model_name,
+                'temperature': 0.7,
+                'messages_length': 1
             }
         except requests.exceptions.RequestException as e:
             return {
                 'success': False,
                 'error': f"Network Error: {str(e)}",
-                'response_time': time.time() - start_time
+                'response_time': time.time() - start_time,
+                'error_type': 'network_error',
+                'url': url,
+                'request_model': model_name,
+                'temperature': 0.7,
+                'messages_length': 1
             }
         except Exception as e:
             return {
                 'success': False,
                 'error': f"Unexpected Error: {str(e)}",
-                'response_time': time.time() - start_time
+                'response_time': time.time() - start_time,
+                'error_type': 'unexpected_error',
+                'url': url,
+                'request_model': model_name,
+                'temperature': 0.7,
+                'messages_length': 1
             }
 
 
@@ -198,9 +260,9 @@ class OpenRouterHandler(APIHandler):
             Словарь с результатом запроса
         """
         start_time = time.time()
+        url = "https://openrouter.ai/api/v1/chat/completions"
         
         try:
-            url = "https://openrouter.ai/api/v1/chat/completions"
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
@@ -221,38 +283,69 @@ class OpenRouterHandler(APIHandler):
             if response.status_code == 200:
                 result = response.json()
                 response_text = result['choices'][0]['message']['content']
-                tokens_used = result.get('usage', {}).get('total_tokens')
+                usage = result.get('usage', {})
+                tokens_used = usage.get('total_tokens')
+                prompt_tokens = usage.get('prompt_tokens')
+                completion_tokens = usage.get('completion_tokens')
                 
                 return {
                     'success': True,
                     'response_text': response_text,
                     'tokens_used': tokens_used,
-                    'response_time': response_time
+                    'prompt_tokens': prompt_tokens,
+                    'completion_tokens': completion_tokens,
+                    'response_time': response_time,
+                    'http_status': response.status_code,
+                    'url': url,
+                    'request_model': model_name,
+                    'temperature': data.get('temperature'),
+                    'messages_length': len(data.get('messages', []))
                 }
             else:
                 return {
                     'success': False,
                     'error': f"API Error: {response.status_code} - {response.text}",
-                    'response_time': response_time
+                    'response_time': response_time,
+                    'http_status': response.status_code,
+                    'error_type': 'api_error',
+                    'url': url,
+                    'request_model': model_name,
+                    'temperature': data.get('temperature'),
+                    'messages_length': len(data.get('messages', []))
                 }
                 
         except requests.exceptions.Timeout:
             return {
                 'success': False,
                 'error': f"Timeout: запрос превысил {timeout} секунд",
-                'response_time': time.time() - start_time
+                'response_time': time.time() - start_time,
+                'error_type': 'timeout',
+                'url': url,
+                'request_model': model_name,
+                'temperature': 0.7,
+                'messages_length': 1
             }
         except requests.exceptions.RequestException as e:
             return {
                 'success': False,
                 'error': f"Network Error: {str(e)}",
-                'response_time': time.time() - start_time
+                'response_time': time.time() - start_time,
+                'error_type': 'network_error',
+                'url': url,
+                'request_model': model_name,
+                'temperature': 0.7,
+                'messages_length': 1
             }
         except Exception as e:
             return {
                 'success': False,
                 'error': f"Unexpected Error: {str(e)}",
-                'response_time': time.time() - start_time
+                'response_time': time.time() - start_time,
+                'error_type': 'unexpected_error',
+                'url': url,
+                'request_model': model_name,
+                'temperature': 0.7,
+                'messages_length': 1
             }
 
 
@@ -273,9 +366,9 @@ class GroqHandler(APIHandler):
             Словарь с результатом запроса
         """
         start_time = time.time()
+        url = "https://api.groq.com/openai/v1/chat/completions"
         
         try:
-            url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
@@ -294,38 +387,69 @@ class GroqHandler(APIHandler):
             if response.status_code == 200:
                 result = response.json()
                 response_text = result['choices'][0]['message']['content']
-                tokens_used = result.get('usage', {}).get('total_tokens')
+                usage = result.get('usage', {})
+                tokens_used = usage.get('total_tokens')
+                prompt_tokens = usage.get('prompt_tokens')
+                completion_tokens = usage.get('completion_tokens')
                 
                 return {
                     'success': True,
                     'response_text': response_text,
                     'tokens_used': tokens_used,
-                    'response_time': response_time
+                    'prompt_tokens': prompt_tokens,
+                    'completion_tokens': completion_tokens,
+                    'response_time': response_time,
+                    'http_status': response.status_code,
+                    'url': url,
+                    'request_model': model_name,
+                    'temperature': data.get('temperature'),
+                    'messages_length': len(data.get('messages', []))
                 }
             else:
                 return {
                     'success': False,
                     'error': f"API Error: {response.status_code} - {response.text}",
-                    'response_time': response_time
+                    'response_time': response_time,
+                    'http_status': response.status_code,
+                    'error_type': 'api_error',
+                    'url': url,
+                    'request_model': model_name,
+                    'temperature': data.get('temperature'),
+                    'messages_length': len(data.get('messages', []))
                 }
                 
         except requests.exceptions.Timeout:
             return {
                 'success': False,
                 'error': f"Timeout: запрос превысил {timeout} секунд",
-                'response_time': time.time() - start_time
+                'response_time': time.time() - start_time,
+                'error_type': 'timeout',
+                'url': url,
+                'request_model': model_name,
+                'temperature': 0.7,
+                'messages_length': 1
             }
         except requests.exceptions.RequestException as e:
             return {
                 'success': False,
                 'error': f"Network Error: {str(e)}",
-                'response_time': time.time() - start_time
+                'response_time': time.time() - start_time,
+                'error_type': 'network_error',
+                'url': url,
+                'request_model': model_name,
+                'temperature': 0.7,
+                'messages_length': 1
             }
         except Exception as e:
             return {
                 'success': False,
                 'error': f"Unexpected Error: {str(e)}",
-                'response_time': time.time() - start_time
+                'response_time': time.time() - start_time,
+                'error_type': 'unexpected_error',
+                'url': url,
+                'request_model': model_name,
+                'temperature': 0.7,
+                'messages_length': 1
             }
 
 
@@ -378,9 +502,12 @@ def send_requests_async(models: List, prompt: str, timeout: int = 30) -> List[Di
             return {
                 'model_id': model.id,
                 'model_name': model.name,
+                'api_model_id': model.api_model_id,
+                'model_type': model.model_type,
                 'success': False,
                 'error': f"API ключ не найден для {model.api_id}",
-                'response_time': 0
+                'response_time': 0,
+                'error_type': 'missing_api_key'
             }
         
         # Получаем обработчик для данного типа API
@@ -390,9 +517,12 @@ def send_requests_async(models: List, prompt: str, timeout: int = 30) -> List[Di
             return {
                 'model_id': model.id,
                 'model_name': model.name,
+                'api_model_id': model.api_model_id,
+                'model_type': model.model_type,
                 'success': False,
                 'error': f"Неподдерживаемый тип API: {model.model_type}",
-                'response_time': 0
+                'response_time': 0,
+                'error_type': 'unsupported_api_type'
             }
         
         # Определяем имя модели для запроса
@@ -412,6 +542,8 @@ def send_requests_async(models: List, prompt: str, timeout: int = 30) -> List[Di
         # Добавляем информацию о модели к результату
         result['model_id'] = model.id
         result['model_name'] = model.name
+        result['api_model_id'] = model.api_model_id
+        result['model_type'] = model.model_type
         
         return result
     
