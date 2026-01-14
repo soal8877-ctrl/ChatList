@@ -172,6 +172,34 @@ class Database:
         row = cursor.fetchone()
         return dict(row) if row else None
     
+    def update_prompt(self, prompt_id: int, prompt: str, tags: Optional[str] = None):
+        """
+        Обновление промта
+        
+        Args:
+            prompt_id: ID промта
+            prompt: новый текст промта
+            tags: новые теги через запятую (опционально)
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            UPDATE prompts 
+            SET prompt = ?, tags = ?
+            WHERE id = ?
+        """, (prompt, tags, prompt_id))
+        self.conn.commit()
+    
+    def delete_prompt(self, prompt_id: int):
+        """
+        Удаление промта
+        
+        Args:
+            prompt_id: ID промта для удаления
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM prompts WHERE id = ?", (prompt_id,))
+        self.conn.commit()
+    
     # Методы для работы с моделями
     def add_model(self, name: str, api_url: str, api_id: str, 
                   model_type: str, api_model_id: str = None, is_active: int = 1) -> int:

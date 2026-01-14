@@ -548,12 +548,40 @@ def send_requests_async(models: List, prompt: str, timeout: int = 30) -> List[Di
         return result
     
     # Используем ThreadPoolExecutor для параллельной отправки запросов
-    with ThreadPoolExecutor(max_workers=len(models)) as executor:
-        future_to_model = {executor.submit(send_single_request, model): model for model in models}
-        
-        for future in as_completed(future_to_model):
-            result = future.result()
-            results.append(result)
+    try:
+        with ThreadPoolExecutor(max_workers=len(models)) as executor:
+            future_to_model = {executor.submit(send_single_request, model): model for model in models}
+            
+            for future in as_completed(future_to_model):
+                try:
+                    result = future.result()
+                    if result:
+                        results.append(result)
+                except Exception as e:
+                    # Если запрос к одной модели упал с исключением, создаем результат с ошибкой
+                    model = future_to_model[future]
+                    error_result = {
+                        'model_id': model.id if hasattr(model, 'id') else None,
+                        'model_name': model.name if hasattr(model, 'name') else 'Неизвестная модель',
+                        'api_model_id': getattr(model, 'api_model_id', None),
+                        'model_type': getattr(model, 'model_type', 'unknown'),
+                        'success': False,
+                        'error': f'Исключение при выполнении запроса: {str(e)}',
+                        'response_time': 0,
+                        'error_type': 'exception'
+                    }
+                    results.append(error_result)
+    except Exception as e:
+        # Критическая ошибка при создании пула потоков
+        error_result = {
+            'model_id': None,
+            'model_name': 'Системная ошибка',
+            'success': False,
+            'error': f'Критическая ошибка при создании пула потоков: {str(e)}',
+            'response_time': 0,
+            'error_type': 'system_error'
+        }
+        results.append(error_result)
     
     return results
 

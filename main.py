@@ -30,8 +30,20 @@ class RequestThread(QThread):
     
     def run(self):
         """Выполнение запросов в отдельном потоке"""
-        results = send_requests_async(self.models, self.prompt, self.timeout)
-        self.finished.emit(results)
+        try:
+            results = send_requests_async(self.models, self.prompt, self.timeout)
+            self.finished.emit(results)
+        except Exception as e:
+            # В случае критической ошибки отправляем пустой список с информацией об ошибке
+            error_result = [{
+                'model_id': None,
+                'model_name': 'Системная ошибка',
+                'success': False,
+                'error': f'Критическая ошибка при отправке запросов: {str(e)}',
+                'response_time': 0,
+                'error_type': 'system_error'
+            }]
+            self.finished.emit(error_result)
 
 
 class MainWindow(QMainWindow):
@@ -234,87 +246,117 @@ class MainWindow(QMainWindow):
     
     def on_requests_finished(self, results: List[Dict]):
         """Обработка завершения запросов"""
-        self.send_button.setEnabled(True)
-        self.progress_bar.setVisible(False)
-        
-        # Сохраняем результаты во временную таблицу
-        self.temp_results = results
-        
-        # Отображаем результаты в таблице
-        self.results_table.setRowCount(len(results))
-        
-        for row, result in enumerate(results):
-            # Логируем запрос с техническими деталями
-            self.logger.log_request(
-                model_name=result['model_name'],
-                prompt=getattr(self, 'current_prompt_text', ''),
-                success=result.get('success', False),
-                response_text=result.get('response_text'),
-                error=result.get('error'),
-                tokens_used=result.get('tokens_used'),
-                response_time=result.get('response_time'),
-                url=result.get('url'),
-                api_model_id=result.get('api_model_id'),
-                model_type=result.get('model_type'),
-                http_status=result.get('http_status'),
-                request_model=result.get('request_model'),
-                temperature=result.get('temperature'),
-                messages_length=result.get('messages_length'),
-                prompt_tokens=result.get('prompt_tokens'),
-                completion_tokens=result.get('completion_tokens'),
-                error_type=result.get('error_type')
-            )
+        try:
+            self.send_button.setEnabled(True)
+            self.progress_bar.setVisible(False)
             
-            # Чекбокс для выбора
-            checkbox = QCheckBox()
-            checkbox.setChecked(False)
-            self.results_table.setCellWidget(row, 0, checkbox)
+            # Проверяем, что результаты не пустые
+            if not results:
+                QMessageBox.warning(self, "Предупреждение", "Не получено результатов от моделей!")
+                return
             
-            # Название модели
-            model_item = QTableWidgetItem(result['model_name'])
-            model_item.setFlags(model_item.flags() & ~Qt.ItemIsEditable)
-            self.results_table.setItem(row, 1, model_item)
+            # Сохраняем результаты во временную таблицу
+            self.temp_results = results
             
-            # Текст ответа или ошибка
-            if result.get('success'):
-                response_text = result.get('response_text', 'Нет ответа')
-                # Добавляем информацию о токенах и времени, если доступно
-                info = []
-                if result.get('tokens_used'):
-                    info.append(f"Токены: {result['tokens_used']}")
-                if result.get('response_time'):
-                    info.append(f"Время: {result['response_time']:.2f}с")
-                if info:
-                    response_text += f"\n\n({', '.join(info)})"
-            else:
-                response_text = f"Ошибка: {result.get('error', 'Неизвестная ошибка')}"
+            # Отображаем результаты в таблице
+            self.results_table.setRowCount(len(results))
             
-            response_item = QTableWidgetItem(response_text)
-            response_item.setFlags(response_item.flags() & ~Qt.ItemIsEditable)
-            # Включаем перенос текста для ячейки с ответом
-            response_item.setTextAlignment(Qt.AlignTop | Qt.AlignLeft)
-            self.results_table.setItem(row, 2, response_item)
+            for row, result in enumerate(results):
+                try:
+                    # Получаем безопасные значения из результата
+                    model_name = result.get('model_name', 'Неизвестная модель')
+                    success = result.get('success', False)
+                    
+                    # Логируем запрос с техническими деталями
+                    try:
+                        self.logger.log_request(
+                            model_name=model_name,
+                            prompt=getattr(self, 'current_prompt_text', ''),
+                            success=success,
+                            response_text=result.get('response_text'),
+                            error=result.get('error'),
+                            tokens_used=result.get('tokens_used'),
+                            response_time=result.get('response_time'),
+                            url=result.get('url'),
+                            api_model_id=result.get('api_model_id'),
+                            model_type=result.get('model_type'),
+                            http_status=result.get('http_status'),
+                            request_model=result.get('request_model'),
+                            temperature=result.get('temperature'),
+                            messages_length=result.get('messages_length'),
+                            prompt_tokens=result.get('prompt_tokens'),
+                            completion_tokens=result.get('completion_tokens'),
+                            error_type=result.get('error_type')
+                        )
+                    except Exception as log_error:
+                        # Если логирование не удалось, продолжаем работу
+                        print(f"Ошибка логирования: {log_error}")
+                    
+                    # Чекбокс для выбора
+                    checkbox = QCheckBox()
+                    checkbox.setChecked(False)
+                    self.results_table.setCellWidget(row, 0, checkbox)
+                    
+                    # Название модели
+                    model_item = QTableWidgetItem(str(model_name))
+                    model_item.setFlags(model_item.flags() & ~Qt.ItemIsEditable)
+                    self.results_table.setItem(row, 1, model_item)
+                    
+                    # Текст ответа или ошибка
+                    if success:
+                        response_text = result.get('response_text', 'Нет ответа')
+                        # Добавляем информацию о токенах и времени, если доступно
+                        info = []
+                        if result.get('tokens_used'):
+                            info.append(f"Токены: {result['tokens_used']}")
+                        if result.get('response_time'):
+                            info.append(f"Время: {result['response_time']:.2f}с")
+                        if info:
+                            response_text += f"\n\n({', '.join(info)})"
+                    else:
+                        error_msg = result.get('error', 'Неизвестная ошибка')
+                        # Обрезаем длинные сообщения об ошибках
+                        if len(error_msg) > 500:
+                            error_msg = error_msg[:500] + "..."
+                        response_text = f"Ошибка: {error_msg}"
+                    
+                    response_item = QTableWidgetItem(str(response_text))
+                    response_item.setFlags(response_item.flags() & ~Qt.ItemIsEditable)
+                    # Включаем перенос текста для ячейки с ответом
+                    response_item.setTextAlignment(Qt.AlignTop | Qt.AlignLeft)
+                    self.results_table.setItem(row, 2, response_item)
+                    
+                    # Кнопка "Открыть" для просмотра ответа в markdown
+                    if success:
+                        open_button = QPushButton("Открыть")
+                        open_button.setStyleSheet("background-color: #2196F3; color: white; padding: 5px;")
+                        open_button.clicked.connect(lambda checked, r=row: self.open_response_markdown(r))
+                        self.results_table.setCellWidget(row, 3, open_button)
+                    else:
+                        # Для ошибок кнопка не нужна
+                        empty_item = QTableWidgetItem("")
+                        empty_item.setFlags(empty_item.flags() & ~Qt.ItemIsEditable)
+                        self.results_table.setItem(row, 3, empty_item)
+                        
+                except Exception as row_error:
+                    # Если ошибка при обработке строки, пропускаем её и продолжаем
+                    print(f"Ошибка при обработке строки {row}: {row_error}")
+                    continue
             
-            # Кнопка "Открыть" для просмотра ответа в markdown
-            if result.get('success'):
-                open_button = QPushButton("Открыть")
-                open_button.setStyleSheet("background-color: #2196F3; color: white; padding: 5px;")
-                open_button.clicked.connect(lambda checked, r=row: self.open_response_markdown(r))
-                self.results_table.setCellWidget(row, 3, open_button)
-            else:
-                # Для ошибок кнопка не нужна
-                empty_item = QTableWidgetItem("")
-                empty_item.setFlags(empty_item.flags() & ~Qt.ItemIsEditable)
-                self.results_table.setItem(row, 3, empty_item)
-        
-        # Включаем кнопку сохранения
-        self.save_results_button.setEnabled(True)
-        
-        # Автоматически подгоняем высоту строк для многострочного текста
-        self.results_table.resizeRowsToContents()
-        # Устанавливаем минимальную высоту строки для лучшей читаемости
-        for row in range(self.results_table.rowCount()):
-            self.results_table.setRowHeight(row, max(50, self.results_table.rowHeight(row)))
+            # Включаем кнопку сохранения
+            self.save_results_button.setEnabled(True)
+            
+            # Автоматически подгоняем высоту строк для многострочного текста
+            self.results_table.resizeRowsToContents()
+            # Устанавливаем минимальную высоту строки для лучшей читаемости
+            for row in range(self.results_table.rowCount()):
+                self.results_table.setRowHeight(row, max(50, self.results_table.rowHeight(row)))
+                
+        except Exception as e:
+            # Критическая ошибка при обработке результатов
+            QMessageBox.critical(self, "Ошибка", f"Произошла ошибка при обработке результатов:\n{str(e)}")
+            self.send_button.setEnabled(True)
+            self.progress_bar.setVisible(False)
     
     def save_selected_results(self):
         """Сохранение выбранных результатов в базу данных"""
@@ -781,12 +823,35 @@ class PromptsDialog(QDialog):
         search_layout.addWidget(self.search_edit)
         layout.addLayout(search_layout)
         
+        # Кнопки CRUD
+        crud_layout = QHBoxLayout()
+        
+        self.create_button = QPushButton("Создать")
+        self.create_button.clicked.connect(self.create_prompt)
+        self.create_button.setStyleSheet("background-color: #4CAF50; color: white; padding: 5px;")
+        crud_layout.addWidget(self.create_button)
+        
+        self.edit_button = QPushButton("Редактировать")
+        self.edit_button.clicked.connect(self.edit_prompt)
+        self.edit_button.setStyleSheet("background-color: #2196F3; color: white; padding: 5px;")
+        crud_layout.addWidget(self.edit_button)
+        
+        self.delete_button = QPushButton("Удалить")
+        self.delete_button.clicked.connect(self.delete_prompt)
+        self.delete_button.setStyleSheet("background-color: #f44336; color: white; padding: 5px;")
+        crud_layout.addWidget(self.delete_button)
+        
+        crud_layout.addStretch()
+        layout.addLayout(crud_layout)
+        
         # Таблица промтов
         self.table = QTableWidget()
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["ID", "Дата", "Промт", "Теги"])
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setSortingEnabled(True)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SingleSelection)
         layout.addWidget(self.table)
         
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
@@ -823,6 +888,135 @@ class PromptsDialog(QDialog):
             self.table.setItem(row, 3, QTableWidgetItem(prompt.get('tags', '')))
         
         self.table.resizeRowsToContents()
+    
+    def create_prompt(self):
+        """Создание нового промта"""
+        dialog = PromptEditDialog(self.db, None, self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.load_prompts()
+            # Обновляем список промтов в главном окне, если оно открыто
+            if hasattr(self.parent(), 'load_saved_prompts'):
+                self.parent().load_saved_prompts()
+    
+    def edit_prompt(self):
+        """Редактирование выбранного промта"""
+        selected_rows = self.table.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.warning(self, "Предупреждение", "Выберите промт для редактирования!")
+            return
+        
+        row = selected_rows[0].row()
+        prompt_id = int(self.table.item(row, 0).text())
+        
+        dialog = PromptEditDialog(self.db, prompt_id, self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.load_prompts()
+            # Обновляем список промтов в главном окне, если оно открыто
+            if hasattr(self.parent(), 'load_saved_prompts'):
+                self.parent().load_saved_prompts()
+    
+    def delete_prompt(self):
+        """Удаление выбранного промта"""
+        selected_rows = self.table.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.warning(self, "Предупреждение", "Выберите промт для удаления!")
+            return
+        
+        row = selected_rows[0].row()
+        prompt_id = int(self.table.item(row, 0).text())
+        prompt_text = self.table.item(row, 2).text()
+        
+        # Показываем первые 50 символов промта в подтверждении
+        preview = prompt_text[:50] + "..." if len(prompt_text) > 50 else prompt_text
+        
+        reply = QMessageBox.question(
+            self, 
+            "Подтверждение удаления",
+            f"Вы уверены, что хотите удалить промт?\n\n{preview}",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            try:
+                self.db.delete_prompt(prompt_id)
+                QMessageBox.information(self, "Успех", "Промт удален!")
+                self.load_prompts()
+                # Обновляем список промтов в главном окне, если оно открыто
+                if hasattr(self.parent(), 'load_saved_prompts'):
+                    self.parent().load_saved_prompts()
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка", f"Не удалось удалить промт:\n{str(e)}")
+
+
+class PromptEditDialog(QDialog):
+    """Диалог для создания/редактирования промта"""
+    
+    def __init__(self, db: Database, prompt_id: Optional[int] = None, parent=None):
+        super().__init__(parent)
+        self.db = db
+        self.prompt_id = prompt_id
+        self.is_edit_mode = prompt_id is not None
+        self.init_ui()
+        
+        if self.is_edit_mode:
+            self.load_prompt_data()
+    
+    def init_ui(self):
+        """Инициализация интерфейса"""
+        title = f"Редактировать промт" if self.is_edit_mode else "Создать промт"
+        self.setWindowTitle(title)
+        self.setGeometry(250, 250, 600, 400)
+        
+        layout = QVBoxLayout()
+        
+        # Поле для текста промта
+        layout.addWidget(QLabel("Промт:"))
+        self.prompt_text = QTextEdit()
+        self.prompt_text.setPlaceholderText("Введите текст промта...")
+        layout.addWidget(self.prompt_text)
+        
+        # Поле для тегов
+        layout.addWidget(QLabel("Теги (через запятую, необязательно):"))
+        self.tags_edit = QLineEdit()
+        self.tags_edit.setPlaceholderText("Например: важное, работа, тест")
+        layout.addWidget(self.tags_edit)
+        
+        # Кнопки
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.save_prompt)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        
+        self.setLayout(layout)
+    
+    def load_prompt_data(self):
+        """Загрузка данных промта для редактирования"""
+        prompt_data = self.db.get_prompt_by_id(self.prompt_id)
+        if prompt_data:
+            self.prompt_text.setPlainText(prompt_data['prompt'])
+            self.tags_edit.setText(prompt_data.get('tags', '') or '')
+    
+    def save_prompt(self):
+        """Сохранение промта"""
+        prompt_text = self.prompt_text.toPlainText().strip()
+        if not prompt_text:
+            QMessageBox.warning(self, "Предупреждение", "Введите текст промта!")
+            return
+        
+        tags = self.tags_edit.text().strip() or None
+        
+        try:
+            if self.is_edit_mode:
+                self.db.update_prompt(self.prompt_id, prompt_text, tags)
+                QMessageBox.information(self, "Успех", "Промт обновлен!")
+            else:
+                self.db.add_prompt(prompt_text, tags)
+                QMessageBox.information(self, "Успех", "Промт создан!")
+            
+            self.accept()
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить промт:\n{str(e)}")
 
 
 class ResultsDialog(QDialog):
