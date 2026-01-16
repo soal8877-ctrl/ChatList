@@ -1,10 +1,10 @@
 import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                               QHBoxLayout, QTextEdit, QPushButton, QTableWidget, 
-                               QTableWidgetItem, QComboBox, QCheckBox, QLabel, 
-                               QMessageBox, QMenuBar, QMenu, QDialog, QDialogButtonBox,
-                               QLineEdit, QHeaderView, QProgressBar, QInputDialog,
-                               QTextBrowser)
+                             QHBoxLayout, QTextEdit, QPushButton, QTableWidget, 
+                             QTableWidgetItem, QComboBox, QCheckBox, QLabel, 
+                             QMessageBox, QMenuBar, QMenu, QDialog, QDialogButtonBox,
+                             QLineEdit, QHeaderView, QProgressBar, QInputDialog,
+                             QTextBrowser, QScrollArea)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QFont
 from db import Database
@@ -12,6 +12,7 @@ from models import ModelFactory
 from network import send_requests_async
 from export import export_to_markdown, export_to_json
 from logger import RequestLogger
+from prompt_improver import PromptImprover
 from datetime import datetime
 from typing import List, Dict, Optional
 from PyQt5.QtWidgets import QFileDialog
@@ -56,6 +57,7 @@ class MainWindow(QMainWindow):
         self.temp_results = []  # Временная таблица результатов в памяти
         self.current_prompt_id = None
         self.logger = RequestLogger()
+        self.prompt_improver = PromptImprover(self.model_factory, self.db)
         
         self.init_ui()
         self.load_saved_prompts()
@@ -110,9 +112,14 @@ class MainWindow(QMainWindow):
         self.save_prompt_button.clicked.connect(self.save_prompt)
         self.save_prompt_button.setStyleSheet("background-color: #FF9800; color: white; padding: 8px;")
         
+        self.improve_prompt_button = QPushButton("Улучшить промт")
+        self.improve_prompt_button.clicked.connect(self.improve_prompt)
+        self.improve_prompt_button.setStyleSheet("background-color: #9C27B0; color: white; padding: 8px;")
+        
         prompt_buttons.addWidget(self.send_button)
         prompt_buttons.addWidget(self.new_request_button)
         prompt_buttons.addWidget(self.save_prompt_button)
+        prompt_buttons.addWidget(self.improve_prompt_button)
         prompt_buttons.addStretch()
         
         prompt_layout.addLayout(prompt_buttons)
@@ -508,10 +515,196 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, "Ошибка", f"Ошибка при экспорте: {str(e)}")
     
+    def improve_prompt(self):
+        """Открытие диалога улучшения промта"""
+        prompt_text = self.prompt_text.toPlainText().strip()
+        if not prompt_text:
+            QMessageBox.warning(self, "Предупреждение", "Введите текст промта для улучшения!")
+            return
+        
+        dialog = PromptImprovementDialog(self.prompt_improver, prompt_text, self)
+        if dialog.exec_() == QDialog.Accepted:
+            selected_prompt = dialog.get_selected_prompt()
+            if selected_prompt:
+                self.prompt_text.setPlainText(selected_prompt)
+    
     def closeEvent(self, event):
         """Обработка закрытия приложения"""
         self.db.close()
         event.accept()
+
+
+class PromptImprovementDialog(QDialog):
+    """Диалог для улучшения промтов с помощью AI"""
+    
+    def __init__(self, prompt_improver: PromptImprover, original_prompt: str, parent=None):
+        super().__init__(parent)
+        self.prompt_improver = prompt_improver
+        self.original_prompt = original_prompt
+        self.selected_prompt = None
+        self.init_ui()
+        self.load_improvements()
+    
+    def init_ui(self):
+        """Инициализация интерфейса"""
+        self.setWindowTitle("Улучшение промта")
+        self.setGeometry(200, 200, 900, 800)
+        
+        main_layout = QVBoxLayout()
+        
+        # Заголовок
+        header_label = QLabel("AI-ассистент для улучшения промтов")
+        header_label.setFont(QFont("Arial", 14, QFont.Bold))
+        main_layout.addWidget(header_label)
+        
+        # Скроллируемая область
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_widget = QWidget()
+        layout = QVBoxLayout()
+        scroll_widget.setLayout(layout)
+        
+        # Исходный промт
+        original_label = QLabel("Исходный промт:")
+        original_label.setFont(QFont("Arial", 10, QFont.Bold))
+        layout.addWidget(original_label)
+        
+        self.original_text = QTextBrowser()
+        self.original_text.setPlainText(self.original_prompt)
+        self.original_text.setMaximumHeight(100)
+        layout.addWidget(self.original_text)
+        
+        # Разделитель
+        separator = QLabel("─" * 50)
+        layout.addWidget(separator)
+        
+        # Улучшенный промт
+        improved_label = QLabel("Улучшенная версия:")
+        improved_label.setFont(QFont("Arial", 10, QFont.Bold))
+        layout.addWidget(improved_label)
+        
+        self.improved_text = QTextBrowser()
+        self.improved_text.setMaximumHeight(120)
+        layout.addWidget(self.improved_text)
+        
+        self.use_improved_button = QPushButton("Использовать улучшенную версию")
+        self.use_improved_button.clicked.connect(lambda: self.select_prompt(self.improved_text.toPlainText()))
+        self.use_improved_button.setStyleSheet("background-color: #4CAF50; color: white; padding: 5px;")
+        layout.addWidget(self.use_improved_button)
+        
+        # Варианты переформулировки
+        variants_label = QLabel("Варианты переформулировки:")
+        variants_label.setFont(QFont("Arial", 10, QFont.Bold))
+        layout.addWidget(variants_label)
+        
+        self.variants_widget = QWidget()
+        self.variants_layout = QVBoxLayout()
+        self.variants_widget.setLayout(self.variants_layout)
+        layout.addWidget(self.variants_widget)
+        
+        # Адаптированные версии
+        adapted_label = QLabel("Адаптированные версии:")
+        adapted_label.setFont(QFont("Arial", 10, QFont.Bold))
+        layout.addWidget(adapted_label)
+        
+        self.adapted_widget = QWidget()
+        self.adapted_layout = QVBoxLayout()
+        self.adapted_widget.setLayout(self.adapted_layout)
+        layout.addWidget(self.adapted_widget)
+        
+        # Индикатор загрузки
+        self.progress_label = QLabel("Загрузка улучшений...")
+        self.progress_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.progress_label)
+        
+        layout.addStretch()
+        
+        scroll_area.setWidget(scroll_widget)
+        main_layout.addWidget(scroll_area)
+        
+        # Кнопки
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(self.accept)
+        main_layout.addWidget(buttons)
+        
+        self.setLayout(main_layout)
+    
+    def load_improvements(self):
+        """Загрузка улучшений промта"""
+        # Улучшенная версия
+        improved_result = self.prompt_improver.improve_prompt(self.original_prompt)
+        if improved_result.get('success'):
+            self.improved_text.setPlainText(improved_result.get('improved_prompt', ''))
+        else:
+            self.improved_text.setPlainText(f"Ошибка: {improved_result.get('error', 'Неизвестная ошибка')}")
+            self.use_improved_button.setEnabled(False)
+        
+        # Варианты переформулировки
+        variants_result = self.prompt_improver.generate_variants(self.original_prompt)
+        if variants_result.get('success'):
+            variants = variants_result.get('variants', [])
+            for i, variant in enumerate(variants, 1):
+                variant_widget = self.create_variant_widget(f"Вариант {i}", variant)
+                self.variants_layout.addWidget(variant_widget)
+        else:
+            error_label = QLabel(f"Ошибка при генерации вариантов: {variants_result.get('error', 'Неизвестная ошибка')}")
+            error_label.setStyleSheet("color: red;")
+            self.variants_layout.addWidget(error_label)
+        
+        # Адаптированные версии
+        adaptation_types = [
+            ('code', 'Для программирования'),
+            ('analysis', 'Для анализа'),
+            ('creative', 'Для творчества')
+        ]
+        
+        for adapt_type, adapt_label in adaptation_types:
+            adapted_result = self.prompt_improver.adapt_for_model_type(self.original_prompt, adapt_type)
+            if adapted_result.get('success'):
+                adapted_text = adapted_result.get('adapted_prompt', '')
+                adapted_widget = self.create_variant_widget(adapt_label, adapted_text)
+                self.adapted_layout.addWidget(adapted_widget)
+            else:
+                error_label = QLabel(f"{adapt_label}: Ошибка - {adapted_result.get('error', 'Неизвестная ошибка')}")
+                error_label.setStyleSheet("color: red;")
+                self.adapted_layout.addWidget(error_label)
+        
+        # Скрываем индикатор загрузки
+        self.progress_label.setVisible(False)
+    
+    def create_variant_widget(self, title: str, text: str) -> QWidget:
+        """Создание виджета для варианта промта"""
+        widget = QWidget()
+        layout = QVBoxLayout()
+        widget.setLayout(layout)
+        
+        # Заголовок
+        title_label = QLabel(title)
+        title_label.setFont(QFont("Arial", 9, QFont.Bold))
+        layout.addWidget(title_label)
+        
+        # Текст варианта
+        text_browser = QTextBrowser()
+        text_browser.setPlainText(text)
+        text_browser.setMaximumHeight(100)
+        layout.addWidget(text_browser)
+        
+        # Кнопка использования
+        use_button = QPushButton(f"Использовать {title.lower()}")
+        use_button.clicked.connect(lambda: self.select_prompt(text))
+        use_button.setStyleSheet("background-color: #2196F3; color: white; padding: 5px;")
+        layout.addWidget(use_button)
+        
+        return widget
+    
+    def select_prompt(self, prompt: str):
+        """Выбор промта для использования"""
+        self.selected_prompt = prompt
+        self.accept()
+    
+    def get_selected_prompt(self) -> Optional[str]:
+        """Получение выбранного промта"""
+        return self.selected_prompt
 
 
 class ModelsDialog(QDialog):
