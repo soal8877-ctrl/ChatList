@@ -2,6 +2,7 @@ import logging
 import os
 from datetime import datetime
 from typing import Dict, Optional
+from version import __version__
 
 
 class RequestLogger:
@@ -46,6 +47,9 @@ class RequestLogger:
             self.logger.handlers.clear()
         
         self.logger.addHandler(file_handler)
+        
+        # Логируем версию при запуске
+        self.logger.info(f"ChatList v{__version__} started")
     
     def log_request(self, model_name: str, prompt: str, success: bool, 
                    response_text: Optional[str] = None, error: Optional[str] = None,

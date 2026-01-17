@@ -13,6 +13,7 @@ from network import send_requests_async
 from export import export_to_markdown, export_to_json
 from logger import RequestLogger
 from prompt_improver import PromptImprover
+from version import __version__
 from datetime import datetime
 from typing import List, Dict, Optional
 from PyQt5.QtWidgets import QFileDialog
@@ -68,7 +69,7 @@ class MainWindow(QMainWindow):
     
     def init_ui(self):
         """Инициализация интерфейса"""
-        self.setWindowTitle("ChatList - Сравнение ответов нейросетей")
+        self.setWindowTitle(f"ChatList v{__version__} - Сравнение ответов нейросетей")
         self.setGeometry(100, 100, 1200, 800)
         
         # Создаем центральный виджет
@@ -657,9 +658,9 @@ class MainWindow(QMainWindow):
     
     def show_about_dialog(self):
         """Показ диалога 'О программе'"""
-        about_text = """
+        about_text = f"""
         <h2>ChatList</h2>
-        <p><b>Версия:</b> 1.0.0</p>
+        <p><b>Версия:</b> {__version__}</p>
         <p><b>Описание:</b></p>
         <p>Приложение для одновременного сравнения ответов различных AI моделей на один и тот же промт.</p>
         
