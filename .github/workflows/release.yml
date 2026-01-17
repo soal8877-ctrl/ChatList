@@ -57,8 +57,13 @@ jobs:
           exit 1
         }
         
+        # Получаем версию из GitHub Actions output
+        $version = "${{ steps.version.outputs.VERSION }}"
+        Write-Host "Version from workflow: $version"
+        
         # Используем Join-Path для правильного формирования пути
-        $exeFile = Join-Path "dist" "ChatList-${{ steps.version.outputs.VERSION }}.exe"
+        $exeFile = Join-Path "dist" "ChatList-$version.exe"
+        Write-Host "Checking for file: $exeFile"
         
         # Проверяем существование файла
         if (-not (Test-Path $exeFile)) {
@@ -67,9 +72,9 @@ jobs:
           # Отладочная информация: проверяем все возможные пути
           Write-Host "`nChecking possible file locations:"
           $possiblePaths = @(
-            "dist\ChatList-${{ steps.version.outputs.VERSION }}.exe",
+            "dist\ChatList-$version.exe",
             "dist\ChatList-1.0.0.exe",
-            "build\ChatList-${{ steps.version.outputs.VERSION }}.exe"
+            "build\ChatList-$version.exe"
           )
           
           foreach ($path in $possiblePaths) {
@@ -134,9 +139,12 @@ jobs:
     - name: Check files and prepare release
       id: check_files
       run: |
+        # Получаем версию из GitHub Actions output
+        $version = "${{ steps.version.outputs.VERSION }}"
+        
         # Используем Join-Path для правильного формирования путей
-        $exeFile = Join-Path "dist" "ChatList-${{ steps.version.outputs.VERSION }}.exe"
-        $setupFile = Join-Path "dist" "ChatList-Setup-${{ steps.version.outputs.VERSION }}.exe"
+        $exeFile = Join-Path "dist" "ChatList-$version.exe"
+        $setupFile = Join-Path "dist" "ChatList-Setup-$version.exe"
         
         Write-Host "Checking files..."
         Write-Host "Expected executable: $exeFile"
