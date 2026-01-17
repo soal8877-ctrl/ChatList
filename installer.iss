@@ -4,7 +4,7 @@
 #define MyAppName "ChatList"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "ChatList"
-#define MyAppURL "https://github.com/yourusername/ChatList"
+#define MyAppURL "https://github.com/soal8877-ctrl/ChatList"
 #define MyAppExeName "ChatList-1.0.0.exe"
 #define MyAppId "{{A1B2C3D4-E5F6-4A5B-8C9D-0E1F2A3B4C5D}"
 

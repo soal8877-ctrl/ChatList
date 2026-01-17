@@ -34,4 +34,4 @@
 - PyInstaller для создания исполняемого файла
 - Inno Setup для создания инсталлятора
 
-[1.0.0]: https://github.com/yourusername/ChatList/releases/tag/v1.0.0
+[1.0.0]: https://github.com/soal8877-ctrl/ChatList/releases/tag/v1.0.0
