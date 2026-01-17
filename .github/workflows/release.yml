@@ -49,11 +49,51 @@ jobs:
         $env:PYTHONIOENCODING = "utf-8"
         $env:PYTHONUTF8 = "1"
         
+        # Запускаем сборку и проверяем код возврата
         python build.py
-        if (-not (Test-Path "dist\ChatList-${{ steps.version.outputs.VERSION }}.exe")) {
-          Write-Host "Error: Executable file was not created"
+        $buildExitCode = $LASTEXITCODE
+        if ($buildExitCode -ne 0) {
+          Write-Host "Error: build.py failed with exit code $buildExitCode"
           exit 1
         }
+        
+        # Используем Join-Path для правильного формирования пути
+        $exeFile = Join-Path "dist" "ChatList-${{ steps.version.outputs.VERSION }}.exe"
+        
+        # Проверяем существование файла
+        if (-not (Test-Path $exeFile)) {
+          Write-Host "Error: Executable file not found at $exeFile"
+          
+          # Отладочная информация: проверяем все возможные пути
+          Write-Host "`nChecking possible file locations:"
+          $possiblePaths = @(
+            "dist\ChatList-${{ steps.version.outputs.VERSION }}.exe",
+            "dist\ChatList-1.0.0.exe",
+            "build\ChatList-${{ steps.version.outputs.VERSION }}.exe"
+          )
+          
+          foreach ($path in $possiblePaths) {
+            if (Test-Path $path) {
+              Write-Host "  Found: $path"
+            } else {
+              Write-Host "  Not found: $path"
+            }
+          }
+          
+          # Показываем содержимое dist для отладки
+          Write-Host "`nContents of dist directory:"
+          if (Test-Path "dist") {
+            Get-ChildItem -Path "dist" -Recurse | ForEach-Object {
+              Write-Host "  $($_.FullName)"
+            }
+          } else {
+            Write-Host "  dist directory does not exist"
+          }
+          
+          exit 1
+        }
+        
+        Write-Host "Success: Executable file found at $exeFile"
         
     - name: Download and Install Inno Setup
       run: |
@@ -94,10 +134,14 @@ jobs:
     - name: Check files and prepare release
       id: check_files
       run: |
-        $exeFile = "dist\ChatList-${{ steps.version.outputs.VERSION }}.exe"
-        $setupFile = "dist\ChatList-Setup-${{ steps.version.outputs.VERSION }}.exe"
+        # Используем Join-Path для правильного формирования путей
+        $exeFile = Join-Path "dist" "ChatList-${{ steps.version.outputs.VERSION }}.exe"
+        $setupFile = Join-Path "dist" "ChatList-Setup-${{ steps.version.outputs.VERSION }}.exe"
         
         Write-Host "Checking files..."
+        Write-Host "Expected executable: $exeFile"
+        Write-Host "Expected installer: $setupFile"
+        
         $hasExe = Test-Path $exeFile
         $hasSetup = Test-Path $setupFile
         
