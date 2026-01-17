@@ -1,8 +1,34 @@
 import logging
 import os
+import sys
 from datetime import datetime
 from typing import Dict, Optional
 from version import __version__
+
+
+def get_app_data_dir():
+    """
+    Получение пути к директории данных приложения в AppData
+    
+    Returns:
+        Путь к директории данных приложения
+    """
+    if getattr(sys, 'frozen', False):
+        # Приложение упаковано PyInstaller
+        app_name = "ChatList"
+        if sys.platform == "win32":
+            app_data = os.path.join(os.environ.get('APPDATA', ''), app_name)
+        elif sys.platform == "darwin":
+            app_data = os.path.join(os.path.expanduser('~'), 'Library', 'Application Support', app_name)
+        else:
+            app_data = os.path.join(os.path.expanduser('~'), '.config', app_name)
+    else:
+        # Режим разработки - используем текущую директорию
+        app_data = os.path.dirname(os.path.abspath(__file__))
+    
+    # Создаем директорию, если её нет
+    os.makedirs(app_data, exist_ok=True)
+    return app_data
 
 
 class RequestLogger:
@@ -20,10 +46,13 @@ class RequestLogger:
     
     def setup_logger(self):
         """Настройка логгера"""
+        # Определяем путь к директории логов в пользовательской директории
+        app_data_dir = get_app_data_dir()
+        log_dir = os.path.join(app_data_dir, "logs")
+        
         # Создаем директорию для логов, если её нет
-        log_dir = "logs"
         if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
+            os.makedirs(log_dir, exist_ok=True)
         
         log_path = os.path.join(log_dir, self.log_file)
         
