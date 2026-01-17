@@ -43,11 +43,16 @@ jobs:
         }
         
     - name: Build executable
+      id: build_exe
       run: |
         # Устанавливаем UTF-8 кодировку для консоли
         chcp 65001 | Out-Null
         $env:PYTHONIOENCODING = "utf-8"
         $env:PYTHONUTF8 = "1"
+        
+        # Читаем версию напрямую из Python
+        $version = python -c "from version import __version__; print(__version__)"
+        Write-Host "Version: $version"
         
         # Запускаем сборку и проверяем код возврата
         python build.py
@@ -56,10 +61,6 @@ jobs:
           Write-Host "Error: build.py failed with exit code $buildExitCode"
           exit 1
         }
-        
-        # Получаем версию из GitHub Actions output
-        $version = "${{ steps.version.outputs.VERSION }}"
-        Write-Host "Version from workflow: $version"
         
         # Используем Join-Path для правильного формирования пути
         $exeFile = Join-Path "dist" "ChatList-$version.exe"
@@ -100,6 +101,9 @@ jobs:
         
         Write-Host "Success: Executable file found at $exeFile"
         
+        # Сохраняем версию для следующих шагов
+        Write-Host "version=$version" >> $env:GITHUB_OUTPUT
+        
     - name: Download and Install Inno Setup
       run: |
         $url = "https://jrsoftware.org/download.php/is.exe"
@@ -139,8 +143,9 @@ jobs:
     - name: Check files and prepare release
       id: check_files
       run: |
-        # Получаем версию из GitHub Actions output
-        $version = "${{ steps.version.outputs.VERSION }}"
+        # Читаем версию напрямую из Python (более надежно, чем из output)
+        $version = python -c "from version import __version__; print(__version__)"
+        Write-Host "Version: $version"
         
         # Используем Join-Path для правильного формирования путей
         $exeFile = Join-Path "dist" "ChatList-$version.exe"
