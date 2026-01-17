@@ -44,6 +44,11 @@ jobs:
         
     - name: Build executable
       run: |
+        # Устанавливаем UTF-8 кодировку для консоли
+        chcp 65001 | Out-Null
+        $env:PYTHONIOENCODING = "utf-8"
+        $env:PYTHONUTF8 = "1"
+        
         python build.py
         if (-not (Test-Path "dist\ChatList-${{ steps.version.outputs.VERSION }}.exe")) {
           Write-Host "Error: Executable file was not created"
