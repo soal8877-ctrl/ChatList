@@ -86,18 +86,97 @@ jobs:
           Write-Host "Warning: Inno Setup not found or installer build failed, continuing without installer"
         }
         
-    - name: List files to upload
+    - name: Check files and prepare release
+      id: check_files
       run: |
-        Write-Host "Files in dist directory:"
-        Get-ChildItem -Path "dist" -Filter "*.exe" | ForEach-Object { Write-Host $_.FullName }
+        $exeFile = "dist\ChatList-${{ steps.version.outputs.VERSION }}.exe"
+        $setupFile = "dist\ChatList-Setup-${{ steps.version.outputs.VERSION }}.exe"
         
-    - name: Create Release
+        Write-Host "Checking files..."
+        $hasExe = Test-Path $exeFile
+        $hasSetup = Test-Path $setupFile
+        
+        if ($hasExe) {
+          Write-Host "✓ Found executable: $exeFile"
+          Write-Host "has_exe=true" >> $env:GITHUB_OUTPUT
+        } else {
+          Write-Host "✗ Executable not found: $exeFile"
+          Write-Host "has_exe=false" >> $env:GITHUB_OUTPUT
+        }
+        
+        if ($hasSetup) {
+          Write-Host "✓ Found installer: $setupFile"
+          Write-Host "has_setup=true" >> $env:GITHUB_OUTPUT
+        } else {
+          Write-Host "✗ Installer not found: $setupFile (this is OK if Inno Setup failed)"
+          Write-Host "has_setup=false" >> $env:GITHUB_OUTPUT
+        }
+        
+        if (-not $hasExe) {
+          Write-Host "Error: Executable file is required but not found!"
+          exit 1
+        }
+        
+    - name: Create Release (with executable only)
+      if: steps.check_files.outputs.has_exe == 'true' && steps.check_files.outputs.has_setup == 'false'
       uses: softprops/action-gh-release@v1
-      continue-on-error: false
+      with:
+        files: |
+          dist/ChatList-${{ steps.version.outputs.VERSION }}.exe
+        name: ChatList v${{ steps.version.outputs.VERSION }}
+        body: |
+          ## ChatList v${{ steps.version.outputs.VERSION }}
+          
+          ### Скачать
+          - **Portable**: [ChatList-${{ steps.version.outputs.VERSION }}.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ChatList-${{ steps.version.outputs.VERSION }}.exe)
+          
+          **Примечание:** Установщик не был создан автоматически. Используйте portable версию или создайте установщик вручную.
+          
+          ### Установка
+          1. Скачайте исполняемый файл
+          2. Запустите ChatList-${{ steps.version.outputs.VERSION }}.exe
+          
+          ### Системные требования
+          - Windows 10 или новее
+          - 64-bit система
+          
+          ### Изменения
+          Смотрите [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) для полного списка изменений.
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Create Release (with executable and installer)
+      if: steps.check_files.outputs.has_exe == 'true' && steps.check_files.outputs.has_setup == 'true'
+      uses: softprops/action-gh-release@v1
       with:
         files: |
           dist/ChatList-${{ steps.version.outputs.VERSION }}.exe
           dist/ChatList-Setup-${{ steps.version.outputs.VERSION }}.exe
+        name: ChatList v${{ steps.version.outputs.VERSION }}
+        body: |
+          ## ChatList v${{ steps.version.outputs.VERSION }}
+          
+          ### Скачать
+          - **Windows Installer**: [ChatList-Setup-${{ steps.version.outputs.VERSION }}.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ChatList-Setup-${{ steps.version.outputs.VERSION }}.exe)
+          - **Portable**: [ChatList-${{ steps.version.outputs.VERSION }}.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ChatList-${{ steps.version.outputs.VERSION }}.exe)
+          
+          ### Установка
+          1. Скачайте установочный файл
+          2. Запустите установщик
+          3. Следуйте инструкциям мастера установки
+          
+          ### Системные требования
+          - Windows 10 или новее
+          - 64-bit система
+          
+          ### Изменения
+          Смотрите [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) для полного списка изменений.
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         name: ChatList v${{ steps.version.outputs.VERSION }}
         body: |
           ## ChatList v${{ steps.version.outputs.VERSION }}
