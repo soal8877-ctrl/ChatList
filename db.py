@@ -1,7 +1,33 @@
 import sqlite3
 import os
+import sys
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
+
+
+def get_app_data_dir():
+    """
+    Получение пути к директории данных приложения в AppData
+    
+    Returns:
+        Путь к директории данных приложения
+    """
+    if getattr(sys, 'frozen', False):
+        # Приложение упаковано PyInstaller
+        app_name = "ChatList"
+        if sys.platform == "win32":
+            app_data = os.path.join(os.environ.get('APPDATA', ''), app_name)
+        elif sys.platform == "darwin":
+            app_data = os.path.join(os.path.expanduser('~'), 'Library', 'Application Support', app_name)
+        else:
+            app_data = os.path.join(os.path.expanduser('~'), '.config', app_name)
+    else:
+        # Режим разработки - используем текущую директорию
+        app_data = os.path.dirname(os.path.abspath(__file__))
+    
+    # Создаем директорию, если её нет
+    os.makedirs(app_data, exist_ok=True)
+    return app_data
 
 
 class Database:
@@ -14,8 +40,12 @@ class Database:
         Args:
             db_name: имя файла базы данных
         """
-        self.db_name = db_name
-        self.conn = sqlite3.connect(db_name, check_same_thread=False)
+        # Определяем путь к базе данных в пользовательской директории
+        app_data_dir = get_app_data_dir()
+        db_path = os.path.join(app_data_dir, db_name)
+        
+        self.db_name = db_path
+        self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self._create_tables()
     
