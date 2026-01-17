@@ -29,21 +29,43 @@ jobs:
       run: |
         python -c "from version import __version__; print(f'VERSION={__version__}')" >> $GITHUB_OUTPUT
         
+    - name: Check required files
+      run: |
+        if (-not (Test-Path "app.ico")) {
+          Write-Host "Warning: app.ico not found, build may fail"
+        }
+        if (-not (Test-Path "installer.iss")) {
+          Write-Host "Warning: installer.iss not found"
+        }
+        if (-not (Test-Path "build.py")) {
+          Write-Host "Error: build.py not found"
+          exit 1
+        }
+        
     - name: Build executable
       run: |
         python build.py
+        if (-not (Test-Path "dist\ChatList-${{ steps.version.outputs.VERSION }}.exe")) {
+          Write-Host "Error: Executable file was not created"
+          exit 1
+        }
         
     - name: Download and Install Inno Setup
       run: |
         $url = "https://jrsoftware.org/download.php/is.exe"
         $output = "is.exe"
         Write-Host "Downloading Inno Setup..."
-        Invoke-WebRequest -Uri $url -OutFile $output -UseBasicParsing
-        Write-Host "Installing Inno Setup..."
-        Start-Process -FilePath $output -ArgumentList "/SILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
-        Start-Sleep -Seconds 10
+        try {
+          Invoke-WebRequest -Uri $url -OutFile $output -UseBasicParsing -TimeoutSec 300
+          Write-Host "Installing Inno Setup..."
+          Start-Process -FilePath $output -ArgumentList "/SILENT /SUPPRESSMSGBOXES /NORESTART" -Wait -NoNewWindow
+          Start-Sleep -Seconds 15
+        } catch {
+          Write-Host "Warning: Failed to download/install Inno Setup: $_"
+        }
         
     - name: Build installer
+      continue-on-error: true
       run: |
         $innoPaths = @(
           "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
@@ -54,16 +76,24 @@ jobs:
           if (Test-Path $path) {
             Write-Host "Found Inno Setup at: $path"
             & $path installer.iss
-            $found = $true
-            break
+            if ($LASTEXITCODE -eq 0) {
+              $found = $true
+              break
+            }
           }
         }
         if (-not $found) {
-          Write-Host "Warning: Inno Setup not found, skipping installer creation"
+          Write-Host "Warning: Inno Setup not found or installer build failed, continuing without installer"
         }
+        
+    - name: List files to upload
+      run: |
+        Write-Host "Files in dist directory:"
+        Get-ChildItem -Path "dist" -Filter "*.exe" | ForEach-Object { Write-Host $_.FullName }
         
     - name: Create Release
       uses: softprops/action-gh-release@v1
+      continue-on-error: false
       with:
         files: |
           dist/ChatList-${{ steps.version.outputs.VERSION }}.exe
