@@ -182,25 +182,4 @@ jobs:
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        name: ChatList v${{ steps.version.outputs.VERSION }}
-        body: |
-          ## ChatList v${{ steps.version.outputs.VERSION }}
-          
-          ### Скачать
-          - **Windows Installer**: [ChatList-Setup-${{ steps.version.outputs.VERSION }}.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ChatList-Setup-${{ steps.version.outputs.VERSION }}.exe)
-          - **Portable**: [ChatList-${{ steps.version.outputs.VERSION }}.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ChatList-${{ steps.version.outputs.VERSION }}.exe)
-          
-          ### Установка
-          1. Скачайте установочный файл
-          2. Запустите установщик
-          3. Следуйте инструкциям мастера установки
-          
-          ### Системные требования
-          - Windows 10 или новее
-          - 64-bit система
-          
-          ### Изменения
-          Смотрите [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) для полного списка изменений.
-        draft: false
-        prerelease: false
 
