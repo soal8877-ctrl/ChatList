@@ -147,9 +147,6 @@ jobs:
         $version = python -c "from version import __version__; print(__version__)"
         Write-Host "Version: $version"
         
-        # Сохраняем версию в output для следующих шагов
-        Write-Host "version=$version" >> $env:GITHUB_OUTPUT
-        
         # Используем Join-Path для правильного формирования путей
         $exeFile = Join-Path "dist" "ChatList-$version.exe"
         $setupFile = Join-Path "dist" "ChatList-Setup-$version.exe"
@@ -161,20 +158,24 @@ jobs:
         $hasExe = Test-Path $exeFile
         $hasSetup = Test-Path $setupFile
         
+        # Сохраняем значения в output используя правильный формат для GitHub Actions
+        $outputFile = $env:GITHUB_OUTPUT
+        Add-Content -Path $outputFile -Value "version=$version"
+        
         if ($hasExe) {
           Write-Host "✓ Found executable: $exeFile"
-          Write-Host "has_exe=true" >> $env:GITHUB_OUTPUT
+          Add-Content -Path $outputFile -Value "has_exe=true"
         } else {
           Write-Host "✗ Executable not found: $exeFile"
-          Write-Host "has_exe=false" >> $env:GITHUB_OUTPUT
+          Add-Content -Path $outputFile -Value "has_exe=false"
         }
         
         if ($hasSetup) {
           Write-Host "✓ Found installer: $setupFile"
-          Write-Host "has_setup=true" >> $env:GITHUB_OUTPUT
+          Add-Content -Path $outputFile -Value "has_setup=true"
         } else {
           Write-Host "✗ Installer not found: $setupFile (this is OK if Inno Setup failed)"
-          Write-Host "has_setup=false" >> $env:GITHUB_OUTPUT
+          Add-Content -Path $outputFile -Value "has_setup=false"
         }
         
         if (-not $hasExe) {
