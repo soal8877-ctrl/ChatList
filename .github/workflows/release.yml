@@ -198,5 +198,4 @@ jobs:
           Смотрите [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) для полного списка изменений.
         draft: false
         prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
