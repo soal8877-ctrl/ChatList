@@ -1,0 +1,93 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Запускается при создании тега вида v1.0.0
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+        
+    - name: Read version
+      id: version
+      run: |
+        python -c "from version import __version__; print(f'VERSION={__version__}')" >> $GITHUB_OUTPUT
+        
+    - name: Build executable
+      run: |
+        python build.py
+        
+    - name: Download and Install Inno Setup
+      run: |
+        $url = "https://jrsoftware.org/download.php/is.exe"
+        $output = "is.exe"
+        Write-Host "Downloading Inno Setup..."
+        Invoke-WebRequest -Uri $url -OutFile $output -UseBasicParsing
+        Write-Host "Installing Inno Setup..."
+        Start-Process -FilePath $output -ArgumentList "/SILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
+        Start-Sleep -Seconds 10
+        
+    - name: Build installer
+      run: |
+        $innoPaths = @(
+          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+          "C:\Program Files\Inno Setup 6\ISCC.exe"
+        )
+        $found = $false
+        foreach ($path in $innoPaths) {
+          if (Test-Path $path) {
+            Write-Host "Found Inno Setup at: $path"
+            & $path installer.iss
+            $found = $true
+            break
+          }
+        }
+        if (-not $found) {
+          Write-Host "Warning: Inno Setup not found, skipping installer creation"
+        }
+        
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          dist/ChatList-${{ steps.version.outputs.VERSION }}.exe
+          dist/ChatList-Setup-${{ steps.version.outputs.VERSION }}.exe
+        name: ChatList v${{ steps.version.outputs.VERSION }}
+        body: |
+          ## ChatList v${{ steps.version.outputs.VERSION }}
+          
+          ### Скачать
+          - **Windows Installer**: [ChatList-Setup-${{ steps.version.outputs.VERSION }}.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ChatList-Setup-${{ steps.version.outputs.VERSION }}.exe)
+          - **Portable**: [ChatList-${{ steps.version.outputs.VERSION }}.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ChatList-${{ steps.version.outputs.VERSION }}.exe)
+          
+          ### Установка
+          1. Скачайте установочный файл
+          2. Запустите установщик
+          3. Следуйте инструкциям мастера установки
+          
+          ### Системные требования
+          - Windows 10 или новее
+          - 64-bit система
+          
+          ### Изменения
+          Смотрите [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) для полного списка изменений.
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

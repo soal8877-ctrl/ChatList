@@ -71,6 +71,10 @@ instance/
 # Sphinx documentation
 docs/_build/
 
+# GitHub Pages (не игнорируем файлы сайта)
+!docs/index.html
+!docs/assets/
+
 # PyBuilder
 .pybuilder/
 target/
