@@ -147,6 +147,9 @@ jobs:
         $version = python -c "from version import __version__; print(__version__)"
         Write-Host "Version: $version"
         
+        # Сохраняем версию в output для следующих шагов
+        Write-Host "version=$version" >> $env:GITHUB_OUTPUT
+        
         # Используем Join-Path для правильного формирования путей
         $exeFile = Join-Path "dist" "ChatList-$version.exe"
         $setupFile = Join-Path "dist" "ChatList-Setup-$version.exe"
@@ -184,19 +187,19 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          dist/ChatList-${{ steps.version.outputs.VERSION }}.exe
-        name: ChatList v${{ steps.version.outputs.VERSION }}
+          dist/ChatList-${{ steps.check_files.outputs.version }}.exe
+        name: ChatList v${{ steps.check_files.outputs.version }}
         body: |
-          ## ChatList v${{ steps.version.outputs.VERSION }}
+          ## ChatList v${{ steps.check_files.outputs.version }}
           
           ### Скачать
-          - **Portable**: [ChatList-${{ steps.version.outputs.VERSION }}.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ChatList-${{ steps.version.outputs.VERSION }}.exe)
+          - **Portable**: [ChatList-${{ steps.check_files.outputs.version }}.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ChatList-${{ steps.check_files.outputs.version }}.exe)
           
           **Примечание:** Установщик не был создан автоматически. Используйте portable версию или создайте установщик вручную.
           
           ### Установка
           1. Скачайте исполняемый файл
-          2. Запустите ChatList-${{ steps.version.outputs.VERSION }}.exe
+          2. Запустите ChatList-${{ steps.check_files.outputs.version }}.exe
           
           ### Системные требования
           - Windows 10 или новее
@@ -214,15 +217,15 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          dist/ChatList-${{ steps.version.outputs.VERSION }}.exe
-          dist/ChatList-Setup-${{ steps.version.outputs.VERSION }}.exe
-        name: ChatList v${{ steps.version.outputs.VERSION }}
+          dist/ChatList-${{ steps.check_files.outputs.version }}.exe
+          dist/ChatList-Setup-${{ steps.check_files.outputs.version }}.exe
+        name: ChatList v${{ steps.check_files.outputs.version }}
         body: |
-          ## ChatList v${{ steps.version.outputs.VERSION }}
+          ## ChatList v${{ steps.check_files.outputs.version }}
           
           ### Скачать
-          - **Windows Installer**: [ChatList-Setup-${{ steps.version.outputs.VERSION }}.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ChatList-Setup-${{ steps.version.outputs.VERSION }}.exe)
-          - **Portable**: [ChatList-${{ steps.version.outputs.VERSION }}.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ChatList-${{ steps.version.outputs.VERSION }}.exe)
+          - **Windows Installer**: [ChatList-Setup-${{ steps.check_files.outputs.version }}.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ChatList-Setup-${{ steps.check_files.outputs.version }}.exe)
+          - **Portable**: [ChatList-${{ steps.check_files.outputs.version }}.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ChatList-${{ steps.check_files.outputs.version }}.exe)
           
           ### Установка
           1. Скачайте установочный файл
