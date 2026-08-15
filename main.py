@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from db import Database
+from dialogs import ModelsDialog, PromptsDialog, ResultsDialog, SettingsDialog
 from models import MissingApiKeyError, get_active_models, validate_active_models
 from network import NetworkError, send_prompt
 from temp_results import TempResultsTable
@@ -66,10 +67,12 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("ChatList")
-        self.resize(900, 600)
 
         self.db = Database()
         self.db.seed_default_models()
+        self._ensure_default_settings()
+        self._apply_window_size()
+
         self.temp = TempResultsTable()
         self.worker: SendWorker | None = None
         self.current_prompt_id: int | None = None
@@ -112,6 +115,8 @@ class MainWindow(QMainWindow):
         central.setLayout(layout)
         self.setCentralWidget(central)
 
+        self._build_menu()
+
         self.prompt_combo.currentIndexChanged.connect(self._on_prompt_chosen)
         self.send_btn.clicked.connect(self._on_send)
         self.save_btn.clicked.connect(self._on_save)
@@ -119,6 +124,62 @@ class MainWindow(QMainWindow):
 
         self._reload_prompts()
         self._check_keys_hint()
+
+    def _build_menu(self) -> None:
+        menu = self.menuBar().addMenu("Данные")
+        menu.addAction("Модели…", self._open_models)
+        menu.addAction("Промты…", self._open_prompts)
+        menu.addAction("Результаты…", self._open_results)
+        menu.addSeparator()
+        menu.addAction("Настройки…", self._open_settings)
+
+    def _ensure_default_settings(self) -> None:
+        if self.db.get_setting("request_timeout_sec") is None:
+            self.db.set_setting("request_timeout_sec", "60")
+        if self.db.get_setting("window_width") is None:
+            self.db.set_setting("window_width", "900")
+        if self.db.get_setting("window_height") is None:
+            self.db.set_setting("window_height", "600")
+        self.db.set_setting("db_path", str(self.db.db_path))
+
+    def _apply_window_size(self) -> None:
+        try:
+            w = int(self.db.get_setting("window_width", "900") or "900")
+            h = int(self.db.get_setting("window_height", "600") or "600")
+        except ValueError:
+            w, h = 900, 600
+        self.resize(w, h)
+
+    def _open_models(self) -> None:
+        ModelsDialog(self.db, self).exec()
+        self._check_keys_hint()
+
+    def _open_prompts(self) -> None:
+        dlg = PromptsDialog(self.db, self)
+        if dlg.exec() == dlg.DialogCode.Accepted and dlg.selected_prompt_id:
+            self._use_prompt(dlg.selected_prompt_id)
+        self._reload_prompts()
+
+    def _use_prompt(self, prompt_id: int) -> None:
+        row = self.db.get_prompt(prompt_id)
+        if not row:
+            return
+        self.current_prompt_id = prompt_id
+        self.prompt_edit.setPlainText(row["prompt"])
+        self._reload_prompts()
+        idx = self.prompt_combo.findData(prompt_id)
+        if idx >= 0:
+            self.prompt_combo.setCurrentIndex(idx)
+
+    def _open_results(self) -> None:
+        ResultsDialog(self.db, self).exec()
+
+    def _open_settings(self) -> None:
+        dlg = SettingsDialog(self.db, self)
+        if dlg.exec() == dlg.DialogCode.Accepted:
+            dlg.apply()
+            self._apply_window_size()
+            self.status_label.setText("Настройки сохранены")
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self.db.close()
@@ -130,6 +191,9 @@ class MainWindow(QMainWindow):
             self.status_label.setText(
                 "Нет ключей в .env: " + "; ".join(errors)
             )
+        else:
+            active_n = len(self.db.list_models(active_only=True))
+            self.status_label.setText(f"Активных моделей: {active_n}")
 
     def _reload_prompts(self) -> None:
         current = self.prompt_combo.currentData()

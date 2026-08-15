@@ -113,6 +113,26 @@ class Database:
         self._conn.execute("DELETE FROM prompts WHERE id = ?", (prompt_id,))
         self._conn.commit()
 
+    def update_prompt(
+        self,
+        prompt_id: int,
+        *,
+        prompt: str | None = None,
+        tags: str | None = None,
+    ) -> None:
+        current = self.get_prompt(prompt_id)
+        if current is None:
+            raise ValueError(f"Промт id={prompt_id} не найден")
+        self._conn.execute(
+            "UPDATE prompts SET prompt = ?, tags = ? WHERE id = ?",
+            (
+                prompt if prompt is not None else current["prompt"],
+                tags if tags is not None else current["tags"],
+                prompt_id,
+            ),
+        )
+        self._conn.commit()
+
     # --- models ---
 
     def create_model(
