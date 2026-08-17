@@ -55,3 +55,9 @@ class TempResultsTable:
 
     def set_selected(self, index: int, selected: bool) -> None:
         self.rows[index].selected = selected
+
+    def set_selected_by_model_id(self, model_id: int, selected: bool) -> None:
+        for row in self.rows:
+            if row.model_id == model_id:
+                row.selected = selected
+                return

@@ -42,11 +42,23 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS request_logs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at  TEXT    NOT NULL,
+    model_name  TEXT    NOT NULL,
+    prompt      TEXT    NOT NULL,
+    status      TEXT    NOT NULL,
+    response    TEXT    NOT NULL DEFAULT '',
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    http_status INTEGER
+);
+
 CREATE INDEX IF NOT EXISTS idx_prompts_created_at ON prompts(created_at);
 CREATE INDEX IF NOT EXISTS idx_models_is_active ON models(is_active);
 CREATE INDEX IF NOT EXISTS idx_results_prompt_id ON results(prompt_id);
 CREATE INDEX IF NOT EXISTS idx_results_model_id ON results(model_id);
 CREATE INDEX IF NOT EXISTS idx_results_created_at ON results(created_at);
+CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON request_logs(created_at);
 """
 
 
@@ -232,6 +244,95 @@ class Database:
 
     def delete_result(self, result_id: int) -> None:
         self._conn.execute("DELETE FROM results WHERE id = ?", (result_id,))
+        self._conn.commit()
+
+    def search_results(self, query: str) -> list[dict[str, Any]]:
+        like = f"%{query}%"
+        rows = self._conn.execute(
+            """
+            SELECT r.*, p.prompt AS prompt_text, m.name AS model_name
+            FROM results r
+            JOIN prompts p ON p.id = r.prompt_id
+            JOIN models m ON m.id = r.model_id
+            WHERE p.prompt LIKE ? OR r.response LIKE ? OR m.name LIKE ?
+            ORDER BY r.created_at DESC
+            """,
+            (like, like, like),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def search_models(self, query: str) -> list[dict[str, Any]]:
+        like = f"%{query}%"
+        rows = self._conn.execute(
+            """
+            SELECT * FROM models
+            WHERE name LIKE ? OR api_url LIKE ? OR api_id LIKE ?
+            ORDER BY name
+            """,
+            (like, like, like),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # --- request logs ---
+
+    def log_request(
+        self,
+        model_name: str,
+        prompt: str,
+        status: str,
+        response: str = "",
+        duration_ms: int = 0,
+        http_status: int | None = None,
+    ) -> int:
+        cur = self._conn.execute(
+            """
+            INSERT INTO request_logs
+                (created_at, model_name, prompt, status, response, duration_ms, http_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _now_iso(),
+                model_name,
+                prompt,
+                status,
+                response,
+                duration_ms,
+                http_status,
+            ),
+        )
+        self._conn.commit()
+        return int(cur.lastrowid)
+
+    def list_logs(self, limit: int = 500) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            """
+            SELECT * FROM request_logs
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def search_logs(self, query: str, limit: int = 500) -> list[dict[str, Any]]:
+        like = f"%{query}%"
+        rows = self._conn.execute(
+            """
+            SELECT * FROM request_logs
+            WHERE model_name LIKE ? OR prompt LIKE ? OR status LIKE ? OR response LIKE ?
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (like, like, like, like, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_log(self, log_id: int) -> None:
+        self._conn.execute("DELETE FROM request_logs WHERE id = ?", (log_id,))
+        self._conn.commit()
+
+    def clear_logs(self) -> None:
+        self._conn.execute("DELETE FROM request_logs")
         self._conn.commit()
 
     # --- settings ---

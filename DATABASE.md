@@ -14,6 +14,7 @@ API-ключи **не хранятся** в БД: в таблице `models` л�
 prompts ─────┐
              ├──< results >── models
 settings     │
+request_logs │
              └── (временная таблица результатов — только в памяти, не в SQLite)
 ```
 
@@ -98,6 +99,25 @@ settings     │
 
 ---
 
+## Таблица `request_logs` — логи запросов
+
+Журнал каждого HTTP-запроса к модели (успех и ошибка). Не содержит API-ключей.
+
+| Поле          | Тип     | Ограничения              | Описание |
+|---------------|---------|--------------------------|----------|
+| `id`          | INTEGER | PRIMARY KEY, AUTOINCREMENT | Уникальный идентификатор |
+| `created_at`  | TEXT    | NOT NULL                 | Дата/время запроса (ISO 8601) |
+| `model_name`  | TEXT    | NOT NULL                 | Имя модели |
+| `prompt`      | TEXT    | NOT NULL                 | Отправленный текст |
+| `status`      | TEXT    | NOT NULL                 | `ok` или `error` |
+| `response`    | TEXT    | NOT NULL DEFAULT ''      | Ответ или текст ошибки |
+| `duration_ms` | INTEGER | NOT NULL DEFAULT 0       | Длительность запроса |
+| `http_status` | INTEGER | NULL                     | HTTP-код, если известен |
+
+Индекс: `idx_request_logs_created_at` по `created_at`.
+
+---
+
 ## Временная таблица результатов (не SQLite)
 
 Создаётся **в памяти** после ответов моделей и **не пишется** в файл БД.
@@ -155,11 +175,23 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS request_logs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at  TEXT    NOT NULL,
+    model_name  TEXT    NOT NULL,
+    prompt      TEXT    NOT NULL,
+    status      TEXT    NOT NULL,
+    response    TEXT    NOT NULL DEFAULT '',
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    http_status INTEGER
+);
+
 CREATE INDEX IF NOT EXISTS idx_prompts_created_at ON prompts(created_at);
 CREATE INDEX IF NOT EXISTS idx_models_is_active ON models(is_active);
 CREATE INDEX IF NOT EXISTS idx_results_prompt_id ON results(prompt_id);
 CREATE INDEX IF NOT EXISTS idx_results_model_id ON results(model_id);
 CREATE INDEX IF NOT EXISTS idx_results_created_at ON results(created_at);
+CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON request_logs(created_at);
 ```
 
 ---
@@ -168,7 +200,15 @@ CREATE INDEX IF NOT EXISTS idx_results_created_at ON results(created_at);
 
 ```env
 OPENROUTER_API_KEY=sk-or-v1-...
+# Optional, if you add models via Data → Models:
+# OPENAI_API_KEY=
+# DEEPSEEK_API_KEY=
+# GROQ_API_KEY=
 ```
 
-В `models.api_id` хранится строка `OPENROUTER_API_KEY`, а не сам секрет.  
-Все модели идут через агрегатор [OpenRouter](https://openrouter.ai): `api_url` = `https://openrouter.ai/api/v1/chat/completions`, в поле `name` — id модели OpenRouter (например `openai/gpt-4o-mini`).
+В `models.api_id` хранится имя переменной (`OPENROUTER_API_KEY` и т.д.), а не сам секрет.
+
+По умолчанию запросы идут через [OpenRouter](https://openrouter.ai):  
+`api_url` = `https://openrouter.ai/api/v1/chat/completions`, в поле `name` — id модели (например `google/gemma-4-31b-it:free`).
+
+Можно добавить прямые провайдеры OpenAI / DeepSeek / Groq в **Данные → Модели** (пресеты URL и `api_id`).

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import time
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -10,6 +11,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -21,7 +23,16 @@ from PyQt6.QtWidgets import (
 )
 
 from db import Database
-from dialogs import ModelsDialog, PromptsDialog, ResultsDialog, SettingsDialog
+from dialogs import (
+    LogsDialog,
+    ModelsDialog,
+    PromptsDialog,
+    ResultsDialog,
+    SettingsDialog,
+    apply_table_filter,
+    configure_table,
+    export_rows,
+)
 from models import MissingApiKeyError, get_active_models, validate_active_models
 from network import NetworkError, send_prompt
 from temp_results import TempResultsTable
@@ -51,12 +62,26 @@ class SendWorker(QThread):
 
             items: list[tuple[int, str, str]] = []
             for model in active:
+                started = time.perf_counter()
+                http_status: int | None = None
                 try:
                     answer = send_prompt(
                         model, self.prompt_text, timeout_sec=self.timeout_sec
                     )
+                    status = "ok"
                 except NetworkError as exc:
                     answer = f"[Ошибка] {exc}"
+                    status = "error"
+                    http_status = exc.http_status
+                duration_ms = int((time.perf_counter() - started) * 1000)
+                db.log_request(
+                    model_name=model.name,
+                    prompt=self.prompt_text,
+                    status=status,
+                    response=answer,
+                    duration_ms=duration_ms,
+                    http_status=http_status,
+                )
                 items.append((model.id, model.name, answer))
             self.finished_ok.emit(items)
         finally:
@@ -86,13 +111,18 @@ class MainWindow(QMainWindow):
         self.send_btn = QPushButton("Отправить")
         self.save_btn = QPushButton("Сохранить")
         self.save_btn.setEnabled(False)
+        self.export_btn = QPushButton("Экспорт…")
+        self.export_btn.setEnabled(False)
         self.status_label = QLabel("")
+
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Поиск по таблице результатов…")
 
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(["Модель", "Ответ", "Выбрать"])
-        self.table.horizontalHeader().setStretchLastSection(False)
-        self.table.setColumnWidth(0, 140)
-        self.table.setColumnWidth(1, 600)
+        configure_table(self.table)
+        self.table.setColumnWidth(0, 220)
+        self.table.setColumnWidth(1, 520)
         self.table.setColumnWidth(2, 80)
 
         top = QHBoxLayout()
@@ -102,6 +132,7 @@ class MainWindow(QMainWindow):
         buttons = QHBoxLayout()
         buttons.addWidget(self.send_btn)
         buttons.addWidget(self.save_btn)
+        buttons.addWidget(self.export_btn)
         buttons.addStretch()
         buttons.addWidget(self.status_label)
 
@@ -109,6 +140,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(top)
         layout.addWidget(self.prompt_edit)
         layout.addLayout(buttons)
+        layout.addWidget(self.search)
         layout.addWidget(self.table)
 
         central = QWidget()
@@ -120,7 +152,11 @@ class MainWindow(QMainWindow):
         self.prompt_combo.currentIndexChanged.connect(self._on_prompt_chosen)
         self.send_btn.clicked.connect(self._on_send)
         self.save_btn.clicked.connect(self._on_save)
+        self.export_btn.clicked.connect(self._on_export)
         self.table.itemChanged.connect(self._on_table_changed)
+        self.search.textChanged.connect(
+            lambda text: apply_table_filter(self.table, text)
+        )
 
         self._reload_prompts()
         self._check_keys_hint()
@@ -130,6 +166,7 @@ class MainWindow(QMainWindow):
         menu.addAction("Модели…", self._open_models)
         menu.addAction("Промты…", self._open_prompts)
         menu.addAction("Результаты…", self._open_results)
+        menu.addAction("Логи запросов…", self._open_logs)
         menu.addSeparator()
         menu.addAction("Настройки…", self._open_settings)
 
@@ -173,6 +210,9 @@ class MainWindow(QMainWindow):
 
     def _open_results(self) -> None:
         ResultsDialog(self.db, self).exec()
+
+    def _open_logs(self) -> None:
+        LogsDialog(self.db, self).exec()
 
     def _open_settings(self) -> None:
         dlg = SettingsDialog(self.db, self)
@@ -236,6 +276,7 @@ class MainWindow(QMainWindow):
         self.temp.reset()
         self._fill_table()
         self.save_btn.setEnabled(False)
+        self.export_btn.setEnabled(False)
 
         if self.current_prompt_id is None:
             self.current_prompt_id = self.db.create_prompt(text)
@@ -269,7 +310,9 @@ class MainWindow(QMainWindow):
             items=items,
         )
         self._fill_table()
-        self.save_btn.setEnabled(bool(self.temp.rows))
+        has_rows = bool(self.temp.rows)
+        self.save_btn.setEnabled(has_rows)
+        self.export_btn.setEnabled(has_rows)
         self.status_label.setText(f"Получено ответов: {len(items)}")
 
     def _on_send_err(self, message: str) -> None:
@@ -278,9 +321,11 @@ class MainWindow(QMainWindow):
 
     def _fill_table(self) -> None:
         self.table.blockSignals(True)
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(len(self.temp.rows))
         for i, row in enumerate(self.temp.rows):
             name_item = QTableWidgetItem(row.model_name)
+            name_item.setData(Qt.ItemDataRole.UserRole, row.model_id)
             name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             resp_item = QTableWidgetItem(row.response)
             resp_item.setFlags(resp_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -294,16 +339,27 @@ class MainWindow(QMainWindow):
             self.table.setItem(i, 0, name_item)
             self.table.setItem(i, 1, resp_item)
             self.table.setItem(i, 2, check)
+        self.table.setSortingEnabled(True)
         self.table.blockSignals(False)
+        apply_table_filter(self.table, self.search.text())
 
     def _on_table_changed(self, item: QTableWidgetItem) -> None:
         if item.column() != 2:
             return
-        row = item.row()
-        if 0 <= row < len(self.temp.rows):
-            self.temp.set_selected(
-                row, item.checkState() == Qt.CheckState.Checked
-            )
+        name_item = self.table.item(item.row(), 0)
+        if name_item is None:
+            return
+        model_id = name_item.data(Qt.ItemDataRole.UserRole)
+        if model_id is None:
+            return
+        self.temp.set_selected_by_model_id(
+            int(model_id), item.checkState() == Qt.CheckState.Checked
+        )
+
+    def _on_export(self) -> None:
+        rows = self.temp.selected_rows() or list(self.temp.rows)
+        prompt_text = self.prompt_edit.toPlainText().strip()
+        export_rows(self, rows, prompt_text)
 
     def _on_save(self) -> None:
         selected = self.temp.selected_rows()
@@ -325,6 +381,7 @@ class MainWindow(QMainWindow):
         self.temp.clear()
         self._fill_table()
         self.save_btn.setEnabled(False)
+        self.export_btn.setEnabled(False)
         self.status_label.setText(f"Сохранено результатов: {len(selected)}")
         QMessageBox.information(
             self, "ChatList", f"Сохранено в БД: {len(selected)}"

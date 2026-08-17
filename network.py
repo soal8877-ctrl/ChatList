@@ -1,14 +1,19 @@
-"""HTTP-запросы к OpenAI-совместимым API."""
+"""HTTP-запросы к OpenAI-совместимым API (OpenRouter, OpenAI, DeepSeek, Groq)."""
 
 from __future__ import annotations
 
 import httpx
 
+from adapters import chat_payload, extra_headers, parse_chat_content
 from models import ActiveModel
 
 
 class NetworkError(Exception):
     """Ошибка сети или ответа API."""
+
+    def __init__(self, message: str, http_status: int | None = None) -> None:
+        super().__init__(message)
+        self.http_status = http_status
 
 
 def send_prompt(
@@ -21,14 +26,9 @@ def send_prompt(
     headers = {
         "Authorization": f"Bearer {model.api_key}",
         "Content-Type": "application/json",
+        **extra_headers(model.api_url),
     }
-    if "openrouter.ai" in model.api_url:
-        headers["HTTP-Referer"] = "https://github.com/local/ChatList"
-        headers["X-Title"] = "ChatList"
-    payload = {
-        "model": model.name,
-        "messages": [{"role": "user", "content": prompt}],
-    }
+    payload = chat_payload(model.name, prompt)
     try:
         with httpx.Client(timeout=timeout_sec) as client:
             response = client.post(model.api_url, headers=headers, json=payload)
@@ -40,13 +40,14 @@ def send_prompt(
     if response.status_code >= 400:
         detail = response.text[:500]
         raise NetworkError(
-            f"HTTP {response.status_code} от {model.name}: {detail}"
+            f"HTTP {response.status_code} от {model.name}: {detail}",
+            http_status=response.status_code,
         )
 
     try:
-        data = response.json()
-        return str(data["choices"][0]["message"]["content"]).strip()
+        return parse_chat_content(response.json())
     except (KeyError, IndexError, TypeError, ValueError) as exc:
         raise NetworkError(
-            f"Некорректный ответ API от {model.name}"
+            f"Некорректный ответ API от {model.name}",
+            http_status=response.status_code,
         ) from exc
