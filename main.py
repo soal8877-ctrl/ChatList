@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -121,9 +122,15 @@ class MainWindow(QMainWindow):
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(["Модель", "Ответ", "Выбрать"])
         configure_table(self.table)
+        self.table.setWordWrap(True)
+        self.table.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self.table.verticalHeader().setDefaultSectionSize(120)
+        self.table.verticalHeader().setMinimumSectionSize(80)
         self.table.setColumnWidth(0, 220)
-        self.table.setColumnWidth(1, 520)
         self.table.setColumnWidth(2, 80)
+        self.table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
 
         top = QHBoxLayout()
         top.addWidget(QLabel("Сохранённый промт:"))
@@ -329,6 +336,9 @@ class MainWindow(QMainWindow):
             name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             resp_item = QTableWidgetItem(row.response)
             resp_item.setFlags(resp_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            resp_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
+            )
             check = QTableWidgetItem()
             check.setFlags(
                 Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled
@@ -339,6 +349,7 @@ class MainWindow(QMainWindow):
             self.table.setItem(i, 0, name_item)
             self.table.setItem(i, 1, resp_item)
             self.table.setItem(i, 2, check)
+            self.table.setRowHeight(i, 120)
         self.table.setSortingEnabled(True)
         self.table.blockSignals(False)
         apply_table_filter(self.table, self.search.text())
