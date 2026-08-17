@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
+    QTextBrowser,
     QTextEdit,
     QVBoxLayout,
 )
@@ -83,6 +84,44 @@ def export_rows(parent, rows: list, prompt_text: str = "") -> None:
             out = out.with_suffix(".md")
         out.write_text(results_to_markdown(rows, prompt_text), encoding="utf-8")
     QMessageBox.information(parent, "Экспорт", f"Сохранено: {out}")
+
+
+def normalize_markdown(text: str) -> str:
+    """If the whole reply is a ```markdown fence, unwrap it for rendering."""
+    s = (text or "").strip()
+    if not s.startswith("```"):
+        return text or ""
+    first_nl = s.find("\n")
+    if first_nl == -1 or not s.endswith("```"):
+        return s
+    lang = s[3:first_nl].strip().lower()
+    if lang not in ("", "markdown", "md"):
+        return s
+    inner = s[first_nl + 1 :]
+    if inner.endswith("```"):
+        inner = inner[:-3]
+    return inner.strip()
+
+
+class MarkdownViewDialog(QDialog):
+    def __init__(self, title: str, markdown: str, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.resize(800, 640)
+
+        browser = QTextBrowser()
+        browser.setOpenExternalLinks(True)
+        browser.setMarkdown(normalize_markdown(markdown))
+
+        close_btn = QPushButton("Закрыть")
+        close_btn.clicked.connect(self.accept)
+        row = QHBoxLayout()
+        row.addStretch()
+        row.addWidget(close_btn)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(browser)
+        layout.addLayout(row)
 
 
 class ModelEditDialog(QDialog):
@@ -435,10 +474,12 @@ class ResultsDialog(QDialog):
         self.preview.setReadOnly(True)
 
         export_btn = QPushButton("Экспорт…")
+        open_btn = QPushButton("Open")
         del_btn = QPushButton("Удалить")
         close_btn = QPushButton("Закрыть")
         row = QHBoxLayout()
         row.addWidget(export_btn)
+        row.addWidget(open_btn)
         row.addWidget(del_btn)
         row.addStretch()
         row.addWidget(close_btn)
@@ -451,9 +492,11 @@ class ResultsDialog(QDialog):
         layout.addLayout(row)
 
         export_btn.clicked.connect(self._export)
+        open_btn.clicked.connect(self._open_markdown)
         del_btn.clicked.connect(self._delete)
         close_btn.clicked.connect(self.accept)
         self.table.itemSelectionChanged.connect(self._on_select)
+        self.table.doubleClicked.connect(lambda _: self._open_markdown())
 
         self._reload()
 
@@ -525,6 +568,20 @@ class ResultsDialog(QDialog):
     def _export(self) -> None:
         rows = self._visible_rows()
         export_rows(self, rows)
+
+    def _open_markdown(self) -> None:
+        result_id = self._selected_id()
+        if result_id is None:
+            QMessageBox.information(self, "Результаты", "Выберите строку.")
+            return
+        data = next((r for r in self._rows if int(r["id"]) == result_id), None)
+        if not data:
+            return
+        MarkdownViewDialog(
+            f"{data.get('model_name') or 'Ответ'}",
+            data.get("response") or "",
+            self,
+        ).exec()
 
     def _delete(self) -> None:
         result_id = self._selected_id()

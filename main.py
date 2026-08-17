@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 from db import Database
 from dialogs import (
     LogsDialog,
+    MarkdownViewDialog,
     ModelsDialog,
     PromptsDialog,
     ResultsDialog,
@@ -114,6 +115,8 @@ class MainWindow(QMainWindow):
         self.save_btn.setEnabled(False)
         self.export_btn = QPushButton("Экспорт…")
         self.export_btn.setEnabled(False)
+        self.open_btn = QPushButton("Open")
+        self.open_btn.setEnabled(False)
         self.status_label = QLabel("")
 
         self.search = QLineEdit()
@@ -140,6 +143,7 @@ class MainWindow(QMainWindow):
         buttons.addWidget(self.send_btn)
         buttons.addWidget(self.save_btn)
         buttons.addWidget(self.export_btn)
+        buttons.addWidget(self.open_btn)
         buttons.addStretch()
         buttons.addWidget(self.status_label)
 
@@ -160,7 +164,9 @@ class MainWindow(QMainWindow):
         self.send_btn.clicked.connect(self._on_send)
         self.save_btn.clicked.connect(self._on_save)
         self.export_btn.clicked.connect(self._on_export)
+        self.open_btn.clicked.connect(self._on_open)
         self.table.itemChanged.connect(self._on_table_changed)
+        self.table.doubleClicked.connect(lambda _: self._on_open())
         self.search.textChanged.connect(
             lambda text: apply_table_filter(self.table, text)
         )
@@ -284,6 +290,7 @@ class MainWindow(QMainWindow):
         self._fill_table()
         self.save_btn.setEnabled(False)
         self.export_btn.setEnabled(False)
+        self.open_btn.setEnabled(False)
 
         if self.current_prompt_id is None:
             self.current_prompt_id = self.db.create_prompt(text)
@@ -320,6 +327,7 @@ class MainWindow(QMainWindow):
         has_rows = bool(self.temp.rows)
         self.save_btn.setEnabled(has_rows)
         self.export_btn.setEnabled(has_rows)
+        self.open_btn.setEnabled(has_rows)
         self.status_label.setText(f"Получено ответов: {len(items)}")
 
     def _on_send_err(self, message: str) -> None:
@@ -372,6 +380,36 @@ class MainWindow(QMainWindow):
         prompt_text = self.prompt_edit.toPlainText().strip()
         export_rows(self, rows, prompt_text)
 
+    def _current_result_row(self):
+        indexes = self.table.selectionModel().selectedRows()
+        row_idx = indexes[0].row() if indexes else self.table.currentRow()
+        if row_idx < 0:
+            for i in range(self.table.rowCount()):
+                if not self.table.isRowHidden(i):
+                    row_idx = i
+                    break
+        if row_idx < 0:
+            return None
+        name_item = self.table.item(row_idx, 0)
+        if name_item is None:
+            return None
+        model_id = name_item.data(Qt.ItemDataRole.UserRole)
+        if model_id is None:
+            return None
+        for row in self.temp.rows:
+            if row.model_id == int(model_id):
+                return row
+        return None
+
+    def _on_open(self) -> None:
+        row = self._current_result_row()
+        if row is None:
+            QMessageBox.information(
+                self, "ChatList", "Выберите строку с ответом."
+            )
+            return
+        MarkdownViewDialog(row.model_name, row.response, self).exec()
+
     def _on_save(self) -> None:
         selected = self.temp.selected_rows()
         if not selected:
@@ -393,6 +431,7 @@ class MainWindow(QMainWindow):
         self._fill_table()
         self.save_btn.setEnabled(False)
         self.export_btn.setEnabled(False)
+        self.open_btn.setEnabled(False)
         self.status_label.setText(f"Сохранено результатов: {len(selected)}")
         QMessageBox.information(
             self, "ChatList", f"Сохранено в БД: {len(selected)}"
