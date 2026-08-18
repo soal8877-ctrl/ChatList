@@ -321,6 +321,41 @@ class ModelsDialog(QDialog):
         self._reload()
 
 
+class PromptEditDialog(QDialog):
+    def __init__(self, parent=None, data: dict | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Промт" if data else "Новый промт")
+        self.resize(640, 360)
+
+        self.prompt_edit = QTextEdit()
+        self.prompt_edit.setPlaceholderText("Текст промта…")
+        if data:
+            self.prompt_edit.setPlainText(data.get("prompt") or "")
+        self.tags_edit = QLineEdit(data.get("tags") or "" if data else "")
+
+        form = QFormLayout()
+        form.addRow("Теги:", self.tags_edit)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Текст:"))
+        layout.addWidget(self.prompt_edit)
+        layout.addLayout(form)
+        layout.addWidget(buttons)
+
+    def values(self) -> tuple[str, str]:
+        return (
+            self.prompt_edit.toPlainText().strip(),
+            self.tags_edit.text().strip(),
+        )
+
+
 class PromptsDialog(QDialog):
     """Просмотр промтов. При «Использовать» возвращает id выбранного промта."""
 
@@ -347,16 +382,19 @@ class PromptsDialog(QDialog):
         self.preview.setMaximumHeight(120)
 
         self.tags_edit = QLineEdit()
+        self.tags_edit.setReadOnly(True)
 
-        use_btn = QPushButton("Использовать")
-        save_tags_btn = QPushButton("Сохранить теги")
+        add_btn = QPushButton("Добавить")
+        edit_btn = QPushButton("Изменить")
         del_btn = QPushButton("Удалить")
+        use_btn = QPushButton("Использовать")
         close_btn = QPushButton("Закрыть")
 
         row = QHBoxLayout()
-        row.addWidget(use_btn)
-        row.addWidget(save_tags_btn)
+        row.addWidget(add_btn)
+        row.addWidget(edit_btn)
         row.addWidget(del_btn)
+        row.addWidget(use_btn)
         row.addStretch()
         row.addWidget(close_btn)
 
@@ -371,12 +409,13 @@ class PromptsDialog(QDialog):
         layout.addLayout(form)
         layout.addLayout(row)
 
-        use_btn.clicked.connect(self._use)
-        save_tags_btn.clicked.connect(self._save_tags)
+        add_btn.clicked.connect(self._add)
+        edit_btn.clicked.connect(self._edit)
         del_btn.clicked.connect(self._delete)
+        use_btn.clicked.connect(self._use)
         close_btn.clicked.connect(self.reject)
         self.table.itemSelectionChanged.connect(self._on_select)
-        self.table.doubleClicked.connect(lambda _: self._use())
+        self.table.doubleClicked.connect(lambda _: self._edit())
 
         self._reload()
 
@@ -422,13 +461,53 @@ class PromptsDialog(QDialog):
         self.selected_prompt_id = prompt_id
         self.accept()
 
-    def _save_tags(self) -> None:
+    def _add(self) -> None:
+        dlg = PromptEditDialog(self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        prompt, tags = dlg.values()
+        if not prompt:
+            QMessageBox.warning(self, "Промты", "Введите текст промта.")
+            return
+        try:
+            new_id = self.db.create_prompt(prompt, tags)
+        except Exception as exc:
+            QMessageBox.critical(self, "Промты", str(exc))
+            return
+        self._reload()
+        self._select_id(new_id)
+
+    def _edit(self) -> None:
         prompt_id = self._selected_id()
         if prompt_id is None:
             QMessageBox.information(self, "Промты", "Выберите промт.")
             return
-        self.db.update_prompt(prompt_id, tags=self.tags_edit.text().strip())
+        data = self.db.get_prompt(prompt_id)
+        if not data:
+            return
+        dlg = PromptEditDialog(self, data)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        prompt, tags = dlg.values()
+        if not prompt:
+            QMessageBox.warning(self, "Промты", "Введите текст промта.")
+            return
+        try:
+            self.db.update_prompt(prompt_id, prompt=prompt, tags=tags)
+        except Exception as exc:
+            QMessageBox.critical(self, "Промты", str(exc))
+            return
         self._reload()
+        self._select_id(prompt_id)
+
+    def _select_id(self, prompt_id: int) -> None:
+        for i in range(self.table.rowCount()):
+            item = self.table.item(i, 0)
+            if item and int(item.text()) == prompt_id:
+                self.table.selectRow(i)
+                self._on_select()
+                return
+        self._on_select()
 
     def _delete(self) -> None:
         prompt_id = self._selected_id()
