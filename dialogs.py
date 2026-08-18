@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -776,11 +776,12 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.db = db
         self.setWindowTitle("Настройки")
-        self.resize(420, 220)
+        self.resize(480, 280)
 
         timeout = db.get_setting("request_timeout_sec", "60") or "60"
         width = db.get_setting("window_width", "900") or "900"
         height = db.get_setting("window_height", "600") or "600"
+        improve_model_id = db.get_setting("improve_model_id", "") or ""
 
         self.db_path_label = QLabel(str(db.db_path))
         self.db_path_label.setTextInteractionFlags(
@@ -805,11 +806,24 @@ class SettingsDialog(QDialog):
         except ValueError:
             self.height_spin.setValue(600)
 
+        self.improve_model_combo = QComboBox()
+        self.improve_model_combo.addItem("— Первая активная модель —", "")
+        for m in db.list_models():
+            label = m["name"]
+            if not m["is_active"]:
+                label += " (неактивна)"
+            self.improve_model_combo.addItem(label, str(m["id"]))
+        if improve_model_id:
+            idx = self.improve_model_combo.findData(improve_model_id)
+            if idx >= 0:
+                self.improve_model_combo.setCurrentIndex(idx)
+
         form = QFormLayout()
         form.addRow("Путь к БД:", self.db_path_label)
         form.addRow("Таймаут запроса (сек):", self.timeout_spin)
         form.addRow("Ширина окна:", self.width_spin)
         form.addRow("Высота окна:", self.height_spin)
+        form.addRow("Модель для улучшения:", self.improve_model_combo)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
@@ -827,3 +841,73 @@ class SettingsDialog(QDialog):
         self.db.set_setting("window_width", str(self.width_spin.value()))
         self.db.set_setting("window_height", str(self.height_spin.value()))
         self.db.set_setting("db_path", str(self.db.db_path))
+        self.db.set_setting(
+            "improve_model_id",
+            self.improve_model_combo.currentData() or "",
+        )
+
+
+class ImproveDialog(QDialog):
+    """Показывает результат улучшения промта с кнопками «Подставить»."""
+
+    applied = pyqtSignal(str)
+
+    def __init__(self, original: str, result, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Улучшение промта")
+        self.resize(760, 620)
+
+        layout = QVBoxLayout(self)
+
+        layout.addWidget(QLabel("Исходный промт:"))
+        orig_browser = QTextBrowser()
+        orig_browser.setPlainText(original)
+        orig_browser.setMaximumHeight(90)
+        layout.addWidget(orig_browser)
+
+        layout.addWidget(QLabel("Улучшенный промт:"))
+        improved_browser = QTextBrowser()
+        improved_browser.setPlainText(result.improved)
+        improved_browser.setMaximumHeight(110)
+        layout.addWidget(improved_browser)
+        apply_improved = QPushButton("Подставить улучшенный")
+        apply_improved.clicked.connect(
+            lambda: self._apply(result.improved)
+        )
+        layout.addWidget(apply_improved)
+
+        if result.alternatives:
+            layout.addWidget(QLabel("Альтернативы:"))
+            for i, alt in enumerate(result.alternatives, 1):
+                alt_browser = QTextBrowser()
+                alt_browser.setPlainText(alt)
+                alt_browser.setMaximumHeight(80)
+                layout.addWidget(alt_browser)
+                btn = QPushButton(f"Подставить вариант {i}")
+                btn.clicked.connect(lambda _=False, t=alt: self._apply(t))
+                layout.addWidget(btn)
+
+        if result.adaptations:
+            labels = {"code": "Код", "analysis": "Анализ", "creative": "Креатив"}
+            layout.addWidget(QLabel("Адаптации:"))
+            for key, text in result.adaptations.items():
+                label = labels.get(key, key)
+                adapt_browser = QTextBrowser()
+                adapt_browser.setPlainText(text)
+                adapt_browser.setMaximumHeight(80)
+                layout.addWidget(QLabel(f"  {label}:"))
+                layout.addWidget(adapt_browser)
+                btn = QPushButton(f"Подставить ({label})")
+                btn.clicked.connect(lambda _=False, t=text: self._apply(t))
+                layout.addWidget(btn)
+
+        close_btn = QPushButton("Закрыть")
+        close_btn.clicked.connect(self.reject)
+        bottom = QHBoxLayout()
+        bottom.addStretch()
+        bottom.addWidget(close_btn)
+        layout.addLayout(bottom)
+
+    def _apply(self, text: str) -> None:
+        self.applied.emit(text)
+        self.accept()

@@ -363,13 +363,14 @@ class Database:
             "google/gemma-4-31b-it:free",
             "openai/gpt-oss-20b:free",
             "nvidia/nemotron-3-nano-30b-a3b:free",
-            "liquid/lfm-2.5-2.6b:free",
+            "nvidia/nemotron-3-super-120b-a12b:free",
         ]
         legacy = {
             "gpt-4o-mini",
             "deepseek-chat",
             "openai/gpt-4o-mini",
             "deepseek/deepseek-chat",
+            "liquid/lfm-2.5-2.6b:free",
         }
 
         existing = {m["name"]: m for m in self.list_models()}

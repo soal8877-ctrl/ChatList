@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 
 from db import Database
 from dialogs import (
+    ImproveDialog,
     LogsDialog,
     MarkdownViewDialog,
     ModelsDialog,
@@ -37,6 +38,7 @@ from dialogs import (
 )
 from models import MissingApiKeyError, get_active_models, validate_active_models
 from network import NetworkError, send_prompt
+from prompt_improver import ImproveResult, improve_prompt
 from temp_results import TempResultsTable
 
 
@@ -90,6 +92,42 @@ class SendWorker(QThread):
             db.close()
 
 
+class ImproveWorker(QThread):
+    finished_ok = pyqtSignal(object)
+    finished_err = pyqtSignal(str)
+
+    def __init__(self, prompt_text: str, timeout_sec: float, model_id: int | None) -> None:
+        super().__init__()
+        self.prompt_text = prompt_text
+        self.timeout_sec = timeout_sec
+        self.model_id = model_id
+
+    def run(self) -> None:
+        db = Database()
+        try:
+            try:
+                active = get_active_models(db)
+            except MissingApiKeyError as exc:
+                self.finished_err.emit(str(exc))
+                return
+            if not active:
+                self.finished_err.emit("Нет активных моделей.")
+                return
+
+            model = None
+            if self.model_id is not None:
+                model = next((m for m in active if m.id == self.model_id), None)
+            if model is None:
+                model = active[0]
+
+            result = improve_prompt(model, self.prompt_text, timeout_sec=self.timeout_sec)
+            self.finished_ok.emit(result)
+        except Exception as exc:
+            self.finished_err.emit(str(exc))
+        finally:
+            db.close()
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -102,6 +140,7 @@ class MainWindow(QMainWindow):
 
         self.temp = TempResultsTable()
         self.worker: SendWorker | None = None
+        self.improve_worker: ImproveWorker | None = None
         self.current_prompt_id: int | None = None
 
         self.prompt_combo = QComboBox()
@@ -109,6 +148,11 @@ class MainWindow(QMainWindow):
         self.prompt_edit = QTextEdit()
         self.prompt_edit.setPlaceholderText("Введите промт…")
         self.prompt_edit.setMinimumHeight(100)
+
+        self.improve_btn = QPushButton("Улучшить промт")
+        self.improve_model_combo = QComboBox()
+        self.improve_model_combo.setMinimumWidth(220)
+        self._reload_improve_models()
 
         self.send_btn = QPushButton("Отправить")
         self.save_btn = QPushButton("Сохранить")
@@ -141,6 +185,8 @@ class MainWindow(QMainWindow):
 
         buttons = QHBoxLayout()
         buttons.addWidget(self.send_btn)
+        buttons.addWidget(self.improve_btn)
+        buttons.addWidget(self.improve_model_combo)
         buttons.addWidget(self.save_btn)
         buttons.addWidget(self.export_btn)
         buttons.addWidget(self.open_btn)
@@ -162,6 +208,7 @@ class MainWindow(QMainWindow):
 
         self.prompt_combo.currentIndexChanged.connect(self._on_prompt_chosen)
         self.send_btn.clicked.connect(self._on_send)
+        self.improve_btn.clicked.connect(self._on_improve)
         self.save_btn.clicked.connect(self._on_save)
         self.export_btn.clicked.connect(self._on_export)
         self.open_btn.clicked.connect(self._on_open)
@@ -203,6 +250,7 @@ class MainWindow(QMainWindow):
     def _open_models(self) -> None:
         ModelsDialog(self.db, self).exec()
         self._check_keys_hint()
+        self._reload_improve_models()
 
     def _open_prompts(self) -> None:
         dlg = PromptsDialog(self.db, self)
@@ -409,6 +457,60 @@ class MainWindow(QMainWindow):
             )
             return
         MarkdownViewDialog(row.model_name, row.response, self).exec()
+
+    def _reload_improve_models(self) -> None:
+        self.improve_model_combo.blockSignals(True)
+        current = self.improve_model_combo.currentData()
+        self.improve_model_combo.clear()
+        for m in self.db.list_models(active_only=True):
+            self.improve_model_combo.addItem(m["name"], m["id"])
+        if current is not None:
+            idx = self.improve_model_combo.findData(current)
+            if idx >= 0:
+                self.improve_model_combo.setCurrentIndex(idx)
+        saved = self.db.get_setting("improve_model_id", "") or ""
+        if saved.isdigit() and current is None:
+            idx = self.improve_model_combo.findData(int(saved))
+            if idx >= 0:
+                self.improve_model_combo.setCurrentIndex(idx)
+        self.improve_model_combo.blockSignals(False)
+
+    def _on_improve(self) -> None:
+        text = self.prompt_edit.toPlainText().strip()
+        if not text:
+            QMessageBox.warning(self, "ChatList", "Введите текст промта.")
+            return
+
+        model_id: int | None = self.improve_model_combo.currentData()
+        if model_id is not None:
+            model_id = int(model_id)
+
+        self.improve_btn.setEnabled(False)
+        self.status_label.setText("Улучшение промта…")
+
+        self.improve_worker = ImproveWorker(text, self._timeout_sec(), model_id)
+        self.improve_worker.finished_ok.connect(self._on_improve_ok)
+        self.improve_worker.finished_err.connect(self._on_improve_err)
+        self.improve_worker.finished.connect(
+            lambda: self.improve_btn.setEnabled(True)
+        )
+        self.improve_worker.start()
+
+    def _on_improve_ok(self, result: ImproveResult) -> None:
+        self.status_label.setText("Промт улучшен")
+        original = self.prompt_edit.toPlainText().strip()
+        dlg = ImproveDialog(original, result, self)
+        dlg.applied.connect(self._apply_improved)
+        dlg.exec()
+
+    def _on_improve_err(self, message: str) -> None:
+        self.status_label.setText("")
+        QMessageBox.critical(self, "Улучшение промта", message)
+
+    def _apply_improved(self, text: str) -> None:
+        self.prompt_edit.setPlainText(text)
+        self.current_prompt_id = None
+        self.prompt_combo.setCurrentIndex(0)
 
     def _on_save(self) -> None:
         selected = self.temp.selected_rows()
