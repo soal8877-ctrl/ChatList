@@ -776,11 +776,13 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.db = db
         self.setWindowTitle("Настройки")
-        self.resize(480, 280)
+        self.resize(520, 340)
 
         timeout = db.get_setting("request_timeout_sec", "60") or "60"
         width = db.get_setting("window_width", "900") or "900"
         height = db.get_setting("window_height", "600") or "600"
+        theme = db.get_setting("theme", "light") or "light"
+        font_size = db.get_setting("font_size_pt", "10") or "10"
         improve_model_id = db.get_setting("improve_model_id", "") or ""
 
         self.db_path_label = QLabel(str(db.db_path))
@@ -805,6 +807,19 @@ class SettingsDialog(QDialog):
             self.height_spin.setValue(int(height))
         except ValueError:
             self.height_spin.setValue(600)
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItem("Светлая", "light")
+        self.theme_combo.addItem("Тёмная", "dark")
+        idx_theme = self.theme_combo.findData(theme)
+        if idx_theme >= 0:
+            self.theme_combo.setCurrentIndex(idx_theme)
+
+        self.font_spin = QSpinBox()
+        self.font_spin.setRange(8, 22)
+        try:
+            self.font_spin.setValue(int(font_size))
+        except ValueError:
+            self.font_spin.setValue(10)
 
         self.improve_model_combo = QComboBox()
         self.improve_model_combo.addItem("— Первая активная модель —", "")
@@ -823,6 +838,8 @@ class SettingsDialog(QDialog):
         form.addRow("Таймаут запроса (сек):", self.timeout_spin)
         form.addRow("Ширина окна:", self.width_spin)
         form.addRow("Высота окна:", self.height_spin)
+        form.addRow("Тема:", self.theme_combo)
+        form.addRow("Размер шрифта (pt):", self.font_spin)
         form.addRow("Модель для улучшения:", self.improve_model_combo)
 
         buttons = QDialogButtonBox(
@@ -841,6 +858,8 @@ class SettingsDialog(QDialog):
         self.db.set_setting("window_width", str(self.width_spin.value()))
         self.db.set_setting("window_height", str(self.height_spin.value()))
         self.db.set_setting("db_path", str(self.db.db_path))
+        self.db.set_setting("theme", self.theme_combo.currentData() or "light")
+        self.db.set_setting("font_size_pt", str(self.font_spin.value()))
         self.db.set_setting(
             "improve_model_id",
             self.improve_model_combo.currentData() or "",

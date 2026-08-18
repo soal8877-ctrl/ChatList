@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -135,12 +136,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("ChatList")
         icon_path = Path(__file__).resolve().parent / "app.ico"
         if icon_path.exists():
-            from PyQt6.QtGui import QIcon
             self.setWindowIcon(QIcon(str(icon_path)))
 
         self.db = Database()
         self.db.seed_default_models()
         self._ensure_default_settings()
+        self._apply_visual_settings()
         self._apply_window_size()
 
         self.temp = TempResultsTable()
@@ -234,6 +235,8 @@ class MainWindow(QMainWindow):
         menu.addAction("Логи запросов…", self._open_logs)
         menu.addSeparator()
         menu.addAction("Настройки…", self._open_settings)
+        help_menu = self.menuBar().addMenu("Справка")
+        help_menu.addAction("О программе…", self._show_about)
 
     def _ensure_default_settings(self) -> None:
         if self.db.get_setting("request_timeout_sec") is None:
@@ -242,7 +245,48 @@ class MainWindow(QMainWindow):
             self.db.set_setting("window_width", "900")
         if self.db.get_setting("window_height") is None:
             self.db.set_setting("window_height", "600")
+        if self.db.get_setting("theme") is None:
+            self.db.set_setting("theme", "light")
+        if self.db.get_setting("font_size_pt") is None:
+            self.db.set_setting("font_size_pt", "10")
         self.db.set_setting("db_path", str(self.db.db_path))
+
+    def _apply_visual_settings(self) -> None:
+        theme = (self.db.get_setting("theme", "light") or "light").strip().lower()
+        font_size = self.db.get_setting("font_size_pt", "10") or "10"
+        try:
+            size = int(font_size)
+        except ValueError:
+            size = 10
+        size = max(8, min(size, 22))
+
+        if theme == "dark":
+            style = f"""
+            QWidget {{
+                background-color: #202124;
+                color: #E8EAED;
+                font-size: {size}pt;
+            }}
+            QLineEdit, QTextEdit, QTextBrowser, QComboBox, QTableWidget {{
+                background-color: #2B2C2F;
+                color: #E8EAED;
+                selection-background-color: #3B78E7;
+            }}
+            QPushButton {{
+                background-color: #3C4043;
+                border: 1px solid #5F6368;
+                padding: 4px 8px;
+            }}
+            QPushButton:hover {{
+                background-color: #4A4E52;
+            }}
+            """
+        else:
+            style = f"QWidget {{ font-size: {size}pt; }}"
+
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(style)
 
     def _apply_window_size(self) -> None:
         try:
@@ -284,8 +328,23 @@ class MainWindow(QMainWindow):
         dlg = SettingsDialog(self.db, self)
         if dlg.exec() == dlg.DialogCode.Accepted:
             dlg.apply()
+            self._apply_visual_settings()
             self._apply_window_size()
             self.status_label.setText("Настройки сохранены")
+
+    def _show_about(self) -> None:
+        QMessageBox.about(
+            self,
+            "О программе ChatList",
+            (
+                "ChatList — приложение для сравнения ответов разных AI-моделей.\n\n"
+                "Возможности:\n"
+                "• отправка одного промта в несколько моделей;\n"
+                "• просмотр и сохранение выбранных ответов в SQLite;\n"
+                "• улучшение промтов через AI-ассистент;\n"
+                "• экспорт результатов в Markdown/JSON."
+            ),
+        )
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self.db.close()
