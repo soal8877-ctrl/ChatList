@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import time
+from pathlib import Path
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -132,6 +133,10 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("ChatList")
+        icon_path = Path(__file__).resolve().parent / "app.ico"
+        if icon_path.exists():
+            from PyQt6.QtGui import QIcon
+            self.setWindowIcon(QIcon(str(icon_path)))
 
         self.db = Database()
         self.db.seed_default_models()
