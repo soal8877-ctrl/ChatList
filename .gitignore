@@ -149,6 +149,8 @@ activemq-data/
 
 # Environments
 .env
+chatlist.db
+
 .envrc
 .venv
 env/

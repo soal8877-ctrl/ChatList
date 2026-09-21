@@ -1,24 +1,668 @@
+"""Главное окно ChatList."""
+
+from __future__ import annotations
+
 import sys
 
-from PyQt6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QAction
+from PyQt6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QPlainTextEdit,
+    QProgressBar,
+    QPushButton,
+    QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+import db
+import models
+import network
 
 
-class MainWindow(QWidget):
+class SendWorker(QThread):
+    finished = pyqtSignal()
+    failed = pyqtSignal(str)
+
+    def __init__(
+        self,
+        session: models.ChatSession,
+        model_list: list[models.Model],
+        prompt: str,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self.session = session
+        self.model_list = model_list
+        self.prompt = prompt
+
+    def run(self) -> None:
+        try:
+            network.send_prompt_to_all(self.model_list, self.prompt, self.session)
+            self.finished.emit()
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+class ModelEditDialog(QDialog):
+    def __init__(self, model: models.Model | None = None, parent=None) -> None:
+        super().__init__(parent)
+        self.model = model
+        self.setWindowTitle("Редактирование модели" if model else "Новая модель")
+        self.setMinimumWidth(480)
+
+        self.name_edit = QLineEdit(model.name if model else "")
+        self.api_url_edit = QLineEdit(model.api_url if model else "")
+        self.api_id_edit = QLineEdit(model.api_id if model else "")
+        self.api_key_env_edit = QLineEdit(model.api_key_env if model else "OPENAI_API_KEY")
+        self.model_type_combo = QComboBox()
+        self.model_type_combo.addItems(["openai", "deepseek", "groq"])
+        if model:
+            index = self.model_type_combo.findText(model.model_type)
+            if index >= 0:
+                self.model_type_combo.setCurrentIndex(index)
+        self.is_active_check = QCheckBox("Активна")
+        self.is_active_check.setChecked(model.is_active if model else True)
+
+        form = QFormLayout()
+        form.addRow("Название:", self.name_edit)
+        form.addRow("API URL:", self.api_url_edit)
+        form.addRow("API ID модели:", self.api_id_edit)
+        form.addRow("Переменная .env:", self.api_key_env_edit)
+        form.addRow("Тип API:", self.model_type_combo)
+        form.addRow("", self.is_active_check)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(form)
+        layout.addWidget(buttons)
+
+    def get_data(self) -> dict:
+        return {
+            "name": self.name_edit.text().strip(),
+            "api_url": self.api_url_edit.text().strip(),
+            "api_id": self.api_id_edit.text().strip(),
+            "api_key_env": self.api_key_env_edit.text().strip(),
+            "model_type": self.model_type_combo.currentText(),
+            "is_active": self.is_active_check.isChecked(),
+        }
+
+
+class ModelsDialog(QDialog):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Модели")
+        self.resize(900, 420)
+
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Поиск по названию или API ID...")
+        self.search_edit.textChanged.connect(self.refresh_table)
+
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(
+            ["ID", "Название", "API URL", "API ID", "Переменная .env", "Активна"]
+        )
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSortingEnabled(True)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+
+        add_btn = QPushButton("Добавить")
+        edit_btn = QPushButton("Изменить")
+        delete_btn = QPushButton("Удалить")
+        toggle_btn = QPushButton("Вкл/выкл активность")
+        close_btn = QPushButton("Закрыть")
+
+        add_btn.clicked.connect(self.add_model)
+        edit_btn.clicked.connect(self.edit_model)
+        delete_btn.clicked.connect(self.delete_model)
+        toggle_btn.clicked.connect(self.toggle_active)
+        close_btn.clicked.connect(self.accept)
+
+        buttons = QHBoxLayout()
+        buttons.addWidget(add_btn)
+        buttons.addWidget(edit_btn)
+        buttons.addWidget(delete_btn)
+        buttons.addWidget(toggle_btn)
+        buttons.addStretch()
+        buttons.addWidget(close_btn)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.search_edit)
+        layout.addWidget(self.table)
+        layout.addLayout(buttons)
+
+        self.refresh_table()
+
+    def _selected_model_id(self) -> int | None:
+        row = self.table.currentRow()
+        if row < 0:
+            return None
+        item = self.table.item(row, 0)
+        return int(item.text()) if item else None
+
+    def refresh_table(self) -> None:
+        search = self.search_edit.text().strip() or None
+        all_models = models.get_all_models()
+        if search:
+            needle = search.lower()
+            all_models = [
+                m
+                for m in all_models
+                if needle in m.name.lower()
+                or needle in m.api_id.lower()
+                or needle in m.api_url.lower()
+            ]
+
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(0)
+        for model in all_models:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            self.table.setItem(row, 0, QTableWidgetItem(str(model.id)))
+            self.table.setItem(row, 1, QTableWidgetItem(model.name))
+            self.table.setItem(row, 2, QTableWidgetItem(model.api_url))
+            self.table.setItem(row, 3, QTableWidgetItem(model.api_id))
+            self.table.setItem(row, 4, QTableWidgetItem(model.api_key_env))
+            active_item = QTableWidgetItem("Да" if model.is_active else "Нет")
+            active_item.setData(Qt.ItemDataRole.UserRole, model.is_active)
+            self.table.setItem(row, 5, active_item)
+        self.table.setSortingEnabled(True)
+
+    def add_model(self) -> None:
+        dialog = ModelEditDialog(parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        data = dialog.get_data()
+        if not all([data["name"], data["api_url"], data["api_id"], data["api_key_env"]]):
+            QMessageBox.warning(self, "Ошибка", "Заполните все обязательные поля.")
+            return
+        try:
+            models.add_model(**data)
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось добавить модель:\n{exc}")
+            return
+        self.refresh_table()
+
+    def edit_model(self) -> None:
+        model_id = self._selected_model_id()
+        if model_id is None:
+            QMessageBox.information(self, "Выбор", "Выберите модель в таблице.")
+            return
+        row = db.get_model(model_id)
+        if row is None:
+            return
+        model = models.row_to_model(row)
+        dialog = ModelEditDialog(model, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        data = dialog.get_data()
+        if not all([data["name"], data["api_url"], data["api_id"], data["api_key_env"]]):
+            QMessageBox.warning(self, "Ошибка", "Заполните все обязательные поля.")
+            return
+        model.name = data["name"]
+        model.api_url = data["api_url"]
+        model.api_id = data["api_id"]
+        model.api_key_env = data["api_key_env"]
+        model.model_type = data["model_type"]
+        model.is_active = data["is_active"]
+        try:
+            models.update_model(model)
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить модель:\n{exc}")
+            return
+        self.refresh_table()
+
+    def delete_model(self) -> None:
+        model_id = self._selected_model_id()
+        if model_id is None:
+            QMessageBox.information(self, "Выбор", "Выберите модель в таблице.")
+            return
+        answer = QMessageBox.question(
+            self,
+            "Удаление",
+            "Удалить выбранную модель?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            models.delete_model(model_id)
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось удалить модель:\n{exc}")
+            return
+        self.refresh_table()
+
+    def toggle_active(self) -> None:
+        model_id = self._selected_model_id()
+        if model_id is None:
+            QMessageBox.information(self, "Выбор", "Выберите модель в таблице.")
+            return
+        row = db.get_model(model_id)
+        if row is None:
+            return
+        is_active = not bool(row["is_active"])
+        models.set_model_active(model_id, is_active)
+        self.refresh_table()
+
+
+class SettingsDialog(QDialog):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Настройки")
+        self.setMinimumWidth(420)
+
+        settings = models.get_settings()
+        self.timeout_spin = QSpinBox()
+        self.timeout_spin.setRange(1, 600)
+        self.timeout_spin.setValue(int(settings.get("request_timeout", "30") or 30))
+        self.env_file_edit = QLineEdit(settings.get("env_file", ".env"))
+        self.log_requests_check = QCheckBox("Логировать запросы")
+        self.log_requests_check.setChecked(settings.get("log_requests", "0") == "1")
+        self.default_tags_edit = QLineEdit(settings.get("default_tags", ""))
+
+        form = QFormLayout()
+        form.addRow("Таймаут запросов (с):", self.timeout_spin)
+        form.addRow("Файл .env:", self.env_file_edit)
+        form.addRow("Теги по умолчанию:", self.default_tags_edit)
+        form.addRow("", self.log_requests_check)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.save)
+        buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(form)
+        layout.addWidget(buttons)
+
+    def save(self) -> None:
+        models.save_settings(
+            {
+                "request_timeout": str(self.timeout_spin.value()),
+                "env_file": self.env_file_edit.text().strip() or ".env",
+                "log_requests": "1" if self.log_requests_check.isChecked() else "0",
+                "default_tags": self.default_tags_edit.text().strip(),
+            }
+        )
+        network.load_env(models.get_env_file())
+        self.accept()
+
+
+class ResultsDialog(QDialog):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Сохранённые результаты")
+        self.resize(960, 520)
+
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Поиск по промту, модели или ответу...")
+        self.search_edit.textChanged.connect(self.refresh_table)
+
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(
+            ["ID", "Дата", "Модель", "Промт", "Ответ"]
+        )
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSortingEnabled(True)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+
+        delete_btn = QPushButton("Удалить")
+        close_btn = QPushButton("Закрыть")
+        delete_btn.clicked.connect(self.delete_selected)
+        close_btn.clicked.connect(self.accept)
+
+        buttons = QHBoxLayout()
+        buttons.addWidget(delete_btn)
+        buttons.addStretch()
+        buttons.addWidget(close_btn)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.search_edit)
+        layout.addWidget(self.table)
+        layout.addLayout(buttons)
+
+        self.refresh_table()
+
+    def refresh_table(self) -> None:
+        search = self.search_edit.text().strip() or None
+        rows = models.load_results(search)
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(0)
+        for result in rows:
+            row_idx = self.table.rowCount()
+            self.table.insertRow(row_idx)
+            self.table.setItem(row_idx, 0, QTableWidgetItem(str(result.id)))
+            self.table.setItem(row_idx, 1, QTableWidgetItem(result.created_at))
+            self.table.setItem(row_idx, 2, QTableWidgetItem(result.model_name))
+            prompt_preview = result.prompt_text
+            if len(prompt_preview) > 120:
+                prompt_preview = prompt_preview[:120] + "..."
+            self.table.setItem(row_idx, 3, QTableWidgetItem(prompt_preview))
+            response_preview = result.response
+            if len(response_preview) > 200:
+                response_preview = response_preview[:200] + "..."
+            self.table.setItem(row_idx, 4, QTableWidgetItem(response_preview))
+        self.table.setSortingEnabled(True)
+
+    def delete_selected(self) -> None:
+        row = self.table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "Выбор", "Выберите результат в таблице.")
+            return
+        item = self.table.item(row, 0)
+        if item is None:
+            return
+        result_id = int(item.text())
+        answer = QMessageBox.question(
+            self,
+            "Удаление",
+            "Удалить выбранный результат?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        db.delete_result(result_id)
+        self.refresh_table()
+
+
+class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("ChatList")
-        self.setMinimumSize(360, 200)
+        self.resize(980, 680)
 
-        self.label = QLabel("Привет! Это минимальное окно на PyQt.")
-        self.button = QPushButton("Нажми меня")
-        self.button.clicked.connect(self.on_click)
+        db.init_db()
+        network.load_env(models.get_env_file())
+        self.session = models.ChatSession()
+        self.worker: SendWorker | None = None
 
-        layout = QVBoxLayout(self)
-        layout.addWidget(self.label)
-        layout.addWidget(self.button)
+        self._build_menu()
+        self._build_ui()
+        self.refresh_prompts_combo()
 
-    def on_click(self) -> None:
-        self.label.setText("Минимальная программа на Python")
+    def _build_menu(self) -> None:
+        menu_bar = self.menuBar()
+
+        models_action = QAction("Модели", self)
+        models_action.triggered.connect(self.open_models_dialog)
+        menu_bar.addAction(models_action)
+
+        settings_action = QAction("Настройки", self)
+        settings_action.triggered.connect(self.open_settings_dialog)
+        menu_bar.addAction(settings_action)
+
+        results_action = QAction("Сохранённые результаты", self)
+        results_action.triggered.connect(self.open_results_dialog)
+        menu_bar.addAction(results_action)
+
+    def _build_ui(self) -> None:
+        central = QWidget()
+        self.setCentralWidget(central)
+        root = QVBoxLayout(central)
+
+        prompt_group = QGroupBox("Промт")
+        prompt_layout = QVBoxLayout(prompt_group)
+
+        saved_row = QHBoxLayout()
+        saved_row.addWidget(QLabel("Сохранённые:"))
+        self.prompts_combo = QComboBox()
+        self.prompts_combo.setMinimumWidth(320)
+        self.prompts_combo.currentIndexChanged.connect(self.on_prompt_selected)
+        saved_row.addWidget(self.prompts_combo, 1)
+        reload_btn = QPushButton("Обновить")
+        reload_btn.clicked.connect(self.refresh_prompts_combo)
+        saved_row.addWidget(reload_btn)
+        prompt_layout.addLayout(saved_row)
+
+        self.prompt_edit = QPlainTextEdit()
+        self.prompt_edit.setPlaceholderText("Введите текст запроса...")
+        self.prompt_edit.setMinimumHeight(100)
+        prompt_layout.addWidget(self.prompt_edit)
+
+        options_row = QHBoxLayout()
+        options_row.addWidget(QLabel("Теги:"))
+        self.tags_edit = QLineEdit()
+        self.tags_edit.setPlaceholderText("python, api")
+        options_row.addWidget(self.tags_edit, 1)
+        self.save_prompt_check = QCheckBox("Сохранить промт в базу")
+        options_row.addWidget(self.save_prompt_check)
+        self.send_btn = QPushButton("Отправить")
+        self.send_btn.clicked.connect(self.send_prompt)
+        options_row.addWidget(self.send_btn)
+        prompt_layout.addLayout(options_row)
+
+        root.addWidget(prompt_group)
+
+        results_group = QGroupBox("Результаты")
+        results_layout = QVBoxLayout(results_group)
+        self.results_table = QTableWidget(0, 3)
+        self.results_table.setHorizontalHeaderLabels(["Модель", "Ответ", "Выбрать"])
+        self.results_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        header = self.results_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.results_table.cellChanged.connect(self.on_result_cell_changed)
+        results_layout.addWidget(self.results_table)
+        root.addWidget(results_group, 1)
+
+        bottom_row = QHBoxLayout()
+        self.save_btn = QPushButton("Сохранить")
+        self.save_btn.clicked.connect(self.save_selected)
+        self.new_btn = QPushButton("Новый запрос")
+        self.new_btn.clicked.connect(self.new_request)
+        bottom_row.addWidget(self.save_btn)
+        bottom_row.addWidget(self.new_btn)
+        bottom_row.addStretch()
+        root.addLayout(bottom_row)
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)
+        self.progress.hide()
+        root.addWidget(self.progress)
+
+        self.status_label = QLabel("Готово")
+        root.addWidget(self.status_label)
+
+    def set_busy(self, busy: bool, message: str = "") -> None:
+        self.send_btn.setEnabled(not busy)
+        self.save_btn.setEnabled(not busy)
+        self.new_btn.setEnabled(not busy)
+        if busy:
+            self.progress.show()
+            self.status_label.setText(message or "Отправка запросов...")
+        else:
+            self.progress.hide()
+            self.status_label.setText(message or "Готово")
+
+    def refresh_prompts_combo(self) -> None:
+        self.prompts_combo.blockSignals(True)
+        self.prompts_combo.clear()
+        self.prompts_combo.addItem("— новый промт —", None)
+        for prompt in models.load_prompts():
+            label = prompt.prompt.replace("\n", " ")
+            if len(label) > 80:
+                label = label[:80] + "..."
+            self.prompts_combo.addItem(label, prompt.id)
+        self.prompts_combo.blockSignals(False)
+
+    def on_prompt_selected(self, index: int) -> None:
+        if index <= 0:
+            return
+        prompt_id = self.prompts_combo.currentData()
+        if prompt_id is None:
+            return
+        row = db.get_prompt(int(prompt_id))
+        if row is None:
+            return
+        self.prompt_edit.setPlainText(row["prompt"])
+        self.tags_edit.setText(row["tags"] or "")
+        self.session.set_current_prompt(row["prompt"], row["id"], row["tags"])
+
+    def _current_prompt_text(self) -> str:
+        return self.prompt_edit.toPlainText().strip()
+
+    def _sync_session_prompt(self) -> bool:
+        text = self._current_prompt_text()
+        if not text:
+            QMessageBox.warning(self, "Промт", "Введите текст промта.")
+            return False
+
+        prompt_id = None
+        tags = self.tags_edit.text().strip() or None
+        combo_index = self.prompts_combo.currentIndex()
+        if combo_index > 0:
+            prompt_id = self.prompts_combo.currentData()
+
+        if self.save_prompt_check.isChecked() and prompt_id is None:
+            default_tags = models.get_settings().get("default_tags", "")
+            if not tags and default_tags:
+                tags = default_tags
+            saved = models.save_prompt(text, tags)
+            prompt_id = saved.id
+            self.refresh_prompts_combo()
+            idx = self.prompts_combo.findData(saved.id)
+            if idx >= 0:
+                self.prompts_combo.setCurrentIndex(idx)
+
+        self.session.set_current_prompt(text, prompt_id, tags)
+        return True
+
+    def send_prompt(self) -> None:
+        if self.worker and self.worker.isRunning():
+            return
+        if not self._sync_session_prompt():
+            return
+
+        active = models.get_active_models()
+        if not active:
+            QMessageBox.warning(
+                self,
+                "Модели",
+                "Нет активных моделей. Откройте «Модели» и включите хотя бы одну.",
+            )
+            return
+
+        self.session.clear_temp_results()
+        self.populate_results_table()
+        self.set_busy(True, f"Отправка в {len(active)} модель(ей)...")
+
+        self.worker = SendWorker(
+            self.session,
+            active,
+            self.session.current_prompt_text,
+            parent=self,
+        )
+        self.worker.finished.connect(self.on_send_finished)
+        self.worker.failed.connect(self.on_send_failed)
+        self.worker.start()
+
+    def on_send_finished(self) -> None:
+        self.populate_results_table()
+        count = len(self.session.get_temp_results())
+        self.set_busy(False, f"Получено ответов: {count}")
+
+    def on_send_failed(self, message: str) -> None:
+        self.set_busy(False, "Ошибка отправки")
+        QMessageBox.critical(self, "Ошибка", message)
+
+    def populate_results_table(self) -> None:
+        self.results_table.blockSignals(True)
+        self.results_table.setRowCount(0)
+        for index, item in enumerate(self.session.get_temp_results()):
+            row = self.results_table.rowCount()
+            self.results_table.insertRow(row)
+            self.results_table.setItem(row, 0, QTableWidgetItem(item.model_name))
+            self.results_table.setItem(row, 1, QTableWidgetItem(item.response))
+            check_item = QTableWidgetItem()
+            check_item.setFlags(
+                Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled
+            )
+            check_item.setCheckState(
+                Qt.CheckState.Checked if item.selected else Qt.CheckState.Unchecked
+            )
+            check_item.setData(Qt.ItemDataRole.UserRole, index)
+            self.results_table.setItem(row, 2, check_item)
+        self.results_table.blockSignals(False)
+
+    def on_result_cell_changed(self, row: int, column: int) -> None:
+        if column != 2:
+            return
+        item = self.results_table.item(row, column)
+        if item is None:
+            return
+        index = item.data(Qt.ItemDataRole.UserRole)
+        if index is None:
+            return
+        selected = item.checkState() == Qt.CheckState.Checked
+        self.session.set_temp_result_selected(int(index), selected)
+
+    def save_selected(self) -> None:
+        selected = self.session.get_selected_temp_results()
+        if not selected:
+            QMessageBox.information(self, "Сохранение", "Отметьте хотя бы один результат.")
+            return
+        if not self.session.current_prompt_text and not self._sync_session_prompt():
+            return
+
+        try:
+            count = models.save_selected_results(
+                self.session,
+                save_prompt_if_new=self.save_prompt_check.isChecked()
+                or self.session.current_prompt_id is None,
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить:\n{exc}")
+            return
+
+        self.populate_results_table()
+        QMessageBox.information(self, "Сохранение", f"Сохранено записей: {count}")
+
+    def new_request(self) -> None:
+        self.session.reset_for_new_request()
+        self.prompt_edit.clear()
+        self.tags_edit.clear()
+        self.save_prompt_check.setChecked(False)
+        self.prompts_combo.setCurrentIndex(0)
+        self.populate_results_table()
+        self.status_label.setText("Новый запрос")
+
+    def open_models_dialog(self) -> None:
+        ModelsDialog(self).exec()
+
+    def open_settings_dialog(self) -> None:
+        SettingsDialog(self).exec()
+
+    def open_results_dialog(self) -> None:
+        ResultsDialog(self).exec()
 
 
 def main() -> None:
