@@ -204,6 +204,10 @@ def load_results(search: str | None = None) -> list[Result]:
     return [row_to_result(row) for row in db.list_results(search)]
 
 
+def load_results_by_prompt(prompt_id: int) -> list[Result]:
+    return [row_to_result(row) for row in db.list_results_by_prompt(prompt_id)]
+
+
 def save_selected_results(session: ChatSession, save_prompt_if_new: bool = False) -> int:
     """Сохраняет отмеченные строки в БД. Возвращает количество сохранённых."""
     selected = session.get_selected_temp_results()

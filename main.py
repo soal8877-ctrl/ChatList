@@ -87,6 +87,68 @@ class ResponseViewDialog(QDialog):
         lines.extend(["## Ответ", "", response.strip()])
         return "\n".join(lines)
 
+    @classmethod
+    def from_saved_result(
+        cls, result: models.Result, parent: QWidget | None = None
+    ) -> ResponseViewDialog:
+        return cls(result.model_name, result.prompt_text, result.response, parent)
+
+    @classmethod
+    def from_prompt(
+        cls, prompt: models.Prompt, parent: QWidget | None = None
+    ) -> ResponseViewDialog:
+        dialog = cls.__new__(cls)
+        QDialog.__init__(dialog, parent)
+        dialog.setWindowTitle(f"Промт — {prompt.id}")
+        dialog.resize(760, 580)
+
+        saved_results = models.load_results_by_prompt(prompt.id)
+        markdown = cls._build_prompt_markdown(prompt, saved_results)
+
+        browser = QTextBrowser()
+        browser.setOpenExternalLinks(True)
+        browser.setMarkdown(markdown)
+
+        close_btn = QPushButton("Закрыть")
+        close_btn.clicked.connect(dialog.accept)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        buttons.addWidget(close_btn)
+
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(browser, 1)
+        layout.addLayout(buttons)
+        return dialog
+
+    @staticmethod
+    def _build_prompt_markdown(
+        prompt: models.Prompt, results: list[models.Result]
+    ) -> str:
+        lines = ["# Промт", ""]
+        if prompt.tags:
+            lines.extend([f"**Теги:** {prompt.tags}", ""])
+        lines.extend([prompt.prompt.strip(), ""])
+        if not results:
+            lines.append("_Нет сохранённых ответов для этого промта._")
+            return "\n".join(lines)
+        lines.append("---")
+        lines.append("")
+        for result in results:
+            lines.extend(
+                [
+                    f"## {result.model_name}",
+                    "",
+                    f"**Дата:** {result.created_at}",
+                    "",
+                    result.response.strip(),
+                    "",
+                    "---",
+                    "",
+                ]
+            )
+        return "\n".join(lines).rstrip() + "\n"
+
 
 class SendWorker(QThread):
     finished = pyqtSignal()
@@ -418,11 +480,14 @@ class PromptsDialog(QDialog):
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
 
         delete_btn = QPushButton("Удалить")
+        open_btn = QPushButton("Открыть")
         close_btn = QPushButton("Закрыть")
+        open_btn.clicked.connect(self.open_selected)
         delete_btn.clicked.connect(self.delete_selected)
         close_btn.clicked.connect(self.accept)
 
         buttons = QHBoxLayout()
+        buttons.addWidget(open_btn)
         buttons.addWidget(delete_btn)
         buttons.addStretch()
         buttons.addWidget(close_btn)
@@ -431,6 +496,8 @@ class PromptsDialog(QDialog):
         layout.addWidget(self.search_edit)
         layout.addWidget(self.table)
         layout.addLayout(buttons)
+
+        self.table.cellDoubleClicked.connect(self.on_row_double_clicked)
 
         self.refresh_table()
 
@@ -442,7 +509,9 @@ class PromptsDialog(QDialog):
         for prompt in rows:
             row_idx = self.table.rowCount()
             self.table.insertRow(row_idx)
-            self.table.setItem(row_idx, 0, QTableWidgetItem(str(prompt.id)))
+            id_item = QTableWidgetItem(str(prompt.id))
+            id_item.setData(Qt.ItemDataRole.UserRole, prompt)
+            self.table.setItem(row_idx, 0, id_item)
             self.table.setItem(row_idx, 1, QTableWidgetItem(prompt.created_at))
             text = prompt.prompt.replace("\n", " ")
             if len(text) > 160:
@@ -450,6 +519,37 @@ class PromptsDialog(QDialog):
             self.table.setItem(row_idx, 2, QTableWidgetItem(text))
             self.table.setItem(row_idx, 3, QTableWidgetItem(prompt.tags or ""))
         self.table.setSortingEnabled(True)
+
+    def _selected_prompt(self) -> models.Prompt | None:
+        row = self.table.currentRow()
+        if row < 0:
+            return None
+        item = self.table.item(row, 0)
+        if item is None:
+            return None
+        prompt = item.data(Qt.ItemDataRole.UserRole)
+        if isinstance(prompt, models.Prompt):
+            return prompt
+        prompt_id = int(item.text())
+        row_data = db.get_prompt(prompt_id)
+        if row_data is None:
+            return None
+        return models.row_to_prompt(row_data)
+
+    def open_selected(self) -> None:
+        prompt = self._selected_prompt()
+        if prompt is None:
+            QMessageBox.information(self, "Открыть", "Выберите промт в таблице.")
+            return
+        ResponseViewDialog.from_prompt(prompt, parent=self).exec()
+
+    def on_row_double_clicked(self, row: int, column: int) -> None:
+        item = self.table.item(row, 0)
+        if item is None:
+            return
+        prompt = item.data(Qt.ItemDataRole.UserRole)
+        if isinstance(prompt, models.Prompt):
+            ResponseViewDialog.from_prompt(prompt, parent=self).exec()
 
     def delete_selected(self) -> None:
         row = self.table.currentRow()
@@ -494,15 +594,18 @@ class ResultsDialog(QDialog):
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
 
         delete_btn = QPushButton("Удалить")
+        open_btn = QPushButton("Открыть")
         export_md_btn = QPushButton("Экспорт MD")
         export_json_btn = QPushButton("Экспорт JSON")
         close_btn = QPushButton("Закрыть")
+        open_btn.clicked.connect(self.open_selected)
         delete_btn.clicked.connect(self.delete_selected)
         export_md_btn.clicked.connect(self.export_markdown)
         export_json_btn.clicked.connect(self.export_json)
         close_btn.clicked.connect(self.accept)
 
         buttons = QHBoxLayout()
+        buttons.addWidget(open_btn)
         buttons.addWidget(delete_btn)
         buttons.addWidget(export_md_btn)
         buttons.addWidget(export_json_btn)
@@ -514,6 +617,8 @@ class ResultsDialog(QDialog):
         layout.addWidget(self.table)
         layout.addLayout(buttons)
 
+        self.table.cellDoubleClicked.connect(self.on_row_double_clicked)
+
         self.refresh_table()
 
     def refresh_table(self) -> None:
@@ -524,7 +629,9 @@ class ResultsDialog(QDialog):
         for result in rows:
             row_idx = self.table.rowCount()
             self.table.insertRow(row_idx)
-            self.table.setItem(row_idx, 0, QTableWidgetItem(str(result.id)))
+            id_item = QTableWidgetItem(str(result.id))
+            id_item.setData(Qt.ItemDataRole.UserRole, result)
+            self.table.setItem(row_idx, 0, id_item)
             self.table.setItem(row_idx, 1, QTableWidgetItem(result.created_at))
             self.table.setItem(row_idx, 2, QTableWidgetItem(result.model_name))
             prompt_preview = result.prompt_text
@@ -536,6 +643,33 @@ class ResultsDialog(QDialog):
                 response_preview = response_preview[:200] + "..."
             self.table.setItem(row_idx, 4, QTableWidgetItem(response_preview))
         self.table.setSortingEnabled(True)
+
+    def _selected_result(self) -> models.Result | None:
+        row = self.table.currentRow()
+        if row < 0:
+            return None
+        item = self.table.item(row, 0)
+        if item is None:
+            return None
+        result = item.data(Qt.ItemDataRole.UserRole)
+        if isinstance(result, models.Result):
+            return result
+        return None
+
+    def open_selected(self) -> None:
+        result = self._selected_result()
+        if result is None:
+            QMessageBox.information(self, "Открыть", "Выберите результат в таблице.")
+            return
+        ResponseViewDialog.from_saved_result(result, parent=self).exec()
+
+    def on_row_double_clicked(self, row: int, column: int) -> None:
+        item = self.table.item(row, 0)
+        if item is None:
+            return
+        result = item.data(Qt.ItemDataRole.UserRole)
+        if isinstance(result, models.Result):
+            ResponseViewDialog.from_saved_result(result, parent=self).exec()
 
     def delete_selected(self) -> None:
         row = self.table.currentRow()

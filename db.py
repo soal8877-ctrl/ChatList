@@ -386,6 +386,29 @@ def list_results(search: str | None = None) -> list[sqlite3.Row]:
         return list(rows)
 
 
+def list_results_by_prompt(prompt_id: int) -> list[sqlite3.Row]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                r.id,
+                r.prompt_id,
+                r.model_id,
+                r.response,
+                r.created_at,
+                p.prompt AS prompt_text,
+                m.name AS model_name
+            FROM results r
+            JOIN prompts p ON p.id = r.prompt_id
+            JOIN models m ON m.id = r.model_id
+            WHERE r.prompt_id = ?
+            ORDER BY r.created_at DESC
+            """,
+            (prompt_id,),
+        ).fetchall()
+        return list(rows)
+
+
 def delete_result(result_id: int) -> None:
     with get_connection() as conn:
         conn.execute("DELETE FROM results WHERE id = ?", (result_id,))
