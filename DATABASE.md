@@ -71,34 +71,30 @@ erDiagram
 
 ## Таблица `models`
 
-Подключённые нейросети. Ключ API задаётся через переменную окружения.
+Подключённые нейросети через **OpenRouter**. Используются только бесплатные модели (`:free` или `openrouter/free`). Ключ API — один, в `.env`.
 
 | Поле         | Тип     | Ограничения        | Описание                                           |
 |--------------|---------|--------------------|----------------------------------------------------|
 | `id`         | INTEGER | PRIMARY KEY        | Уникальный идентификатор                           |
-| `name`       | TEXT    | NOT NULL, UNIQUE   | Отображаемое имя (GPT-4o, DeepSeek и т.д.)         |
-| `api_url`    | TEXT    | NOT NULL           | URL endpoint API                                   |
-| `api_id`     | TEXT    | NOT NULL           | Идентификатор модели в API (например `gpt-4o`)     |
-| `api_key_env`| TEXT    | NOT NULL           | Имя переменной в `.env` (например `OPENAI_API_KEY`)|
+| `name`       | TEXT    | NOT NULL, UNIQUE   | Отображаемое имя                                   |
+| `api_url`    | TEXT    | NOT NULL           | `https://openrouter.ai/api/v1/chat/completions`    |
+| `api_id`     | TEXT    | NOT NULL           | ID модели OpenRouter (например `qwen/qwen3.8-27b:free`) |
+| `api_key_env`| TEXT    | NOT NULL           | Имя переменной в `.env` (`OPENROUTER_API_KEY`)     |
 | `is_active`  | INTEGER | NOT NULL, DEFAULT 1| 1 — участвует в отправке, 0 — отключена          |
-| `model_type` | TEXT    | DEFAULT 'openai'   | Тип адаптера: `openai`, `deepseek`, `groq` и др.   |
-
-**Индексы:** `idx_models_is_active`.
+| `model_type` | TEXT    | DEFAULT 'openrouter' | Тип адаптера (всегда `openrouter`)               |
 
 **Пример `.env`:**
 
 ```env
-OPENAI_API_KEY=sk-...
-DEEPSEEK_API_KEY=sk-...
-GROQ_API_KEY=gsk_...
+OPENROUTER_API_KEY=sk-or-v1-...
 ```
 
 **Пример записи в `models`:**
 
-| id | name     | api_url                              | api_id      | api_key_env      | is_active | model_type |
-|----|----------|--------------------------------------|-------------|------------------|-----------|------------|
-| 1  | GPT-4o   | https://api.openai.com/v1/chat/completions | gpt-4o  | OPENAI_API_KEY   | 1         | openai     |
-| 2  | DeepSeek | https://api.deepseek.com/v1/chat/completions | deepseek-chat | DEEPSEEK_API_KEY | 1 | deepseek |
+| id | name | api_url | api_id | api_key_env | is_active | model_type |
+|----|------|---------|--------|-------------|-----------|------------|
+| 1 | OpenRouter Free | https://openrouter.ai/api/v1/chat/completions | openrouter/free | OPENROUTER_API_KEY | 1 | openrouter |
+| 2 | Qwen3.8 27B (free) | https://openrouter.ai/api/v1/chat/completions | qwen/qwen3.8-27b:free | OPENROUTER_API_KEY | 1 | openrouter |
 
 ---
 
@@ -182,7 +178,7 @@ CREATE TABLE IF NOT EXISTS models (
     api_id      TEXT    NOT NULL,
     api_key_env TEXT    NOT NULL,
     is_active   INTEGER NOT NULL DEFAULT 1,
-    model_type  TEXT    NOT NULL DEFAULT 'openai'
+    model_type  TEXT    NOT NULL DEFAULT 'openrouter'
 );
 
 CREATE TABLE IF NOT EXISTS results (

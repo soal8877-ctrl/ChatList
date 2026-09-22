@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QAction
@@ -12,6 +13,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -31,9 +33,22 @@ from PyQt6.QtWidgets import (
 )
 
 import db
+import export
 import models
 import network
 
+
+def save_text_to_file(parent: QWidget, default_name: str, content: str) -> bool:
+    path, _ = QFileDialog.getSaveFileName(
+        parent,
+        "Сохранить файл",
+        default_name,
+        "Markdown (*.md);;JSON (*.json);;Все файлы (*.*)",
+    )
+    if not path:
+        return False
+    Path(path).write_text(content, encoding="utf-8")
+    return True
 
 class SendWorker(QThread):
     finished = pyqtSignal()
@@ -64,27 +79,33 @@ class ModelEditDialog(QDialog):
         super().__init__(parent)
         self.model = model
         self.setWindowTitle("Редактирование модели" if model else "Новая модель")
-        self.setMinimumWidth(480)
+        self.setMinimumWidth(520)
 
         self.name_edit = QLineEdit(model.name if model else "")
-        self.api_url_edit = QLineEdit(model.api_url if model else "")
+        self.api_url_edit = QLineEdit(
+            model.api_url if model else db.OPENROUTER_API_URL
+        )
+        self.api_url_edit.setReadOnly(True)
         self.api_id_edit = QLineEdit(model.api_id if model else "")
-        self.api_key_env_edit = QLineEdit(model.api_key_env if model else "OPENAI_API_KEY")
-        self.model_type_combo = QComboBox()
-        self.model_type_combo.addItems(["openai", "deepseek", "groq"])
-        if model:
-            index = self.model_type_combo.findText(model.model_type)
-            if index >= 0:
-                self.model_type_combo.setCurrentIndex(index)
+        self.api_id_edit.setPlaceholderText("provider/model:free или openrouter/free")
+        self.api_key_env_edit = QLineEdit(
+            model.api_key_env if model else db.OPENROUTER_API_KEY_ENV
+        )
+        self.api_key_env_edit.setReadOnly(True)
         self.is_active_check = QCheckBox("Активна")
         self.is_active_check.setChecked(model.is_active if model else True)
 
+        hint = QLabel(
+            "Все модели подключаются через OpenRouter. "
+            "Разрешены только бесплатные id (:free или openrouter/free)."
+        )
+        hint.setWordWrap(True)
+
         form = QFormLayout()
         form.addRow("Название:", self.name_edit)
-        form.addRow("API URL:", self.api_url_edit)
-        form.addRow("API ID модели:", self.api_id_edit)
-        form.addRow("Переменная .env:", self.api_key_env_edit)
-        form.addRow("Тип API:", self.model_type_combo)
+        form.addRow("OpenRouter URL:", self.api_url_edit)
+        form.addRow("ID модели:", self.api_id_edit)
+        form.addRow("Ключ .env:", self.api_key_env_edit)
         form.addRow("", self.is_active_check)
 
         buttons = QDialogButtonBox(
@@ -94,16 +115,35 @@ class ModelEditDialog(QDialog):
         buttons.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
+        layout.addWidget(hint)
         layout.addLayout(form)
         layout.addWidget(buttons)
 
+    def accept(self) -> None:
+        if not self.name_edit.text().strip():
+            QMessageBox.warning(self, "Ошибка", "Укажите название модели.")
+            return
+        api_id = self.api_id_edit.text().strip()
+        if not api_id:
+            QMessageBox.warning(self, "Ошибка", "Укажите ID модели OpenRouter.")
+            return
+        if not network.is_free_openrouter_model(api_id):
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                "Разрешены только бесплатные модели: openrouter/free или id с суффиксом :free.",
+            )
+            return
+        super().accept()
+
     def get_data(self) -> dict:
+        api_id = self.api_id_edit.text().strip()
         return {
             "name": self.name_edit.text().strip(),
-            "api_url": self.api_url_edit.text().strip(),
-            "api_id": self.api_id_edit.text().strip(),
-            "api_key_env": self.api_key_env_edit.text().strip(),
-            "model_type": self.model_type_combo.currentText(),
+            "api_url": db.OPENROUTER_API_URL,
+            "api_id": api_id,
+            "api_key_env": db.OPENROUTER_API_KEY_ENV,
+            "model_type": "openrouter",
             "is_active": self.is_active_check.isChecked(),
         }
 
@@ -196,8 +236,12 @@ class ModelsDialog(QDialog):
         dialog = ModelEditDialog(parent=self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        data = dialog.get_data()
-        if not all([data["name"], data["api_url"], data["api_id"], data["api_key_env"]]):
+        try:
+            data = dialog.get_data()
+        except ValueError as exc:
+            QMessageBox.warning(self, "Ошибка", str(exc))
+            return
+        if not all([data["name"], data["api_id"]]):
             QMessageBox.warning(self, "Ошибка", "Заполните все обязательные поля.")
             return
         try:
@@ -219,8 +263,12 @@ class ModelsDialog(QDialog):
         dialog = ModelEditDialog(model, parent=self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        data = dialog.get_data()
-        if not all([data["name"], data["api_url"], data["api_id"], data["api_key_env"]]):
+        try:
+            data = dialog.get_data()
+        except ValueError as exc:
+            QMessageBox.warning(self, "Ошибка", str(exc))
+            return
+        if not all([data["name"], data["api_id"]]):
             QMessageBox.warning(self, "Ошибка", "Заполните все обязательные поля.")
             return
         model.name = data["name"]
@@ -313,6 +361,79 @@ class SettingsDialog(QDialog):
         self.accept()
 
 
+class PromptsDialog(QDialog):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Сохранённые промты")
+        self.resize(900, 520)
+
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Поиск по тексту или тегам...")
+        self.search_edit.textChanged.connect(self.refresh_table)
+
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["ID", "Дата", "Промт", "Теги"])
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSortingEnabled(True)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+
+        delete_btn = QPushButton("Удалить")
+        close_btn = QPushButton("Закрыть")
+        delete_btn.clicked.connect(self.delete_selected)
+        close_btn.clicked.connect(self.accept)
+
+        buttons = QHBoxLayout()
+        buttons.addWidget(delete_btn)
+        buttons.addStretch()
+        buttons.addWidget(close_btn)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.search_edit)
+        layout.addWidget(self.table)
+        layout.addLayout(buttons)
+
+        self.refresh_table()
+
+    def refresh_table(self) -> None:
+        search = self.search_edit.text().strip() or None
+        rows = models.load_prompts(search)
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(0)
+        for prompt in rows:
+            row_idx = self.table.rowCount()
+            self.table.insertRow(row_idx)
+            self.table.setItem(row_idx, 0, QTableWidgetItem(str(prompt.id)))
+            self.table.setItem(row_idx, 1, QTableWidgetItem(prompt.created_at))
+            text = prompt.prompt.replace("\n", " ")
+            if len(text) > 160:
+                text = text[:160] + "..."
+            self.table.setItem(row_idx, 2, QTableWidgetItem(text))
+            self.table.setItem(row_idx, 3, QTableWidgetItem(prompt.tags or ""))
+        self.table.setSortingEnabled(True)
+
+    def delete_selected(self) -> None:
+        row = self.table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "Выбор", "Выберите промт в таблице.")
+            return
+        item = self.table.item(row, 0)
+        if item is None:
+            return
+        prompt_id = int(item.text())
+        answer = QMessageBox.question(
+            self,
+            "Удаление",
+            "Удалить выбранный промт и связанные результаты?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        models.delete_prompt(prompt_id)
+        self.refresh_table()
+
+
 class ResultsDialog(QDialog):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -335,12 +456,18 @@ class ResultsDialog(QDialog):
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
 
         delete_btn = QPushButton("Удалить")
+        export_md_btn = QPushButton("Экспорт MD")
+        export_json_btn = QPushButton("Экспорт JSON")
         close_btn = QPushButton("Закрыть")
         delete_btn.clicked.connect(self.delete_selected)
+        export_md_btn.clicked.connect(self.export_markdown)
+        export_json_btn.clicked.connect(self.export_json)
         close_btn.clicked.connect(self.accept)
 
         buttons = QHBoxLayout()
         buttons.addWidget(delete_btn)
+        buttons.addWidget(export_md_btn)
+        buttons.addWidget(export_json_btn)
         buttons.addStretch()
         buttons.addWidget(close_btn)
 
@@ -392,6 +519,28 @@ class ResultsDialog(QDialog):
         db.delete_result(result_id)
         self.refresh_table()
 
+    def _visible_results(self) -> list[models.Result]:
+        search = self.search_edit.text().strip() or None
+        return models.load_results(search)
+
+    def export_markdown(self) -> None:
+        rows = self._visible_results()
+        if not rows:
+            QMessageBox.information(self, "Экспорт", "Нет данных для экспорта.")
+            return
+        content = export.saved_results_to_markdown(rows)
+        if save_text_to_file(self, "chatlist-results.md", content):
+            QMessageBox.information(self, "Экспорт", "Файл Markdown сохранён.")
+
+    def export_json(self) -> None:
+        rows = self._visible_results()
+        if not rows:
+            QMessageBox.information(self, "Экспорт", "Нет данных для экспорта.")
+            return
+        content = export.saved_results_to_json(rows)
+        if save_text_to_file(self, "chatlist-results.json", content):
+            QMessageBox.information(self, "Экспорт", "Файл JSON сохранён.")
+
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
@@ -422,6 +571,10 @@ class MainWindow(QMainWindow):
         results_action = QAction("Сохранённые результаты", self)
         results_action.triggered.connect(self.open_results_dialog)
         menu_bar.addAction(results_action)
+
+        prompts_action = QAction("Промты", self)
+        prompts_action.triggered.connect(self.open_prompts_dialog)
+        menu_bar.addAction(prompts_action)
 
     def _build_ui(self) -> None:
         central = QWidget()
@@ -463,6 +616,16 @@ class MainWindow(QMainWindow):
 
         results_group = QGroupBox("Результаты")
         results_layout = QVBoxLayout(results_group)
+
+        sort_row = QHBoxLayout()
+        sort_row.addWidget(QLabel("Сортировка:"))
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItems(["Без сортировки", "По модели (А–Я)", "По ответу (А–Я)"])
+        self.sort_combo.currentIndexChanged.connect(self.apply_temp_sort)
+        sort_row.addWidget(self.sort_combo)
+        sort_row.addStretch()
+        results_layout.addLayout(sort_row)
+
         self.results_table = QTableWidget(0, 3)
         self.results_table.setHorizontalHeaderLabels(["Модель", "Ответ", "Выбрать"])
         self.results_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -477,9 +640,15 @@ class MainWindow(QMainWindow):
         bottom_row = QHBoxLayout()
         self.save_btn = QPushButton("Сохранить")
         self.save_btn.clicked.connect(self.save_selected)
+        self.export_md_btn = QPushButton("Экспорт MD")
+        self.export_md_btn.clicked.connect(self.export_selected_markdown)
+        self.export_json_btn = QPushButton("Экспорт JSON")
+        self.export_json_btn.clicked.connect(self.export_selected_json)
         self.new_btn = QPushButton("Новый запрос")
         self.new_btn.clicked.connect(self.new_request)
         bottom_row.addWidget(self.save_btn)
+        bottom_row.addWidget(self.export_md_btn)
+        bottom_row.addWidget(self.export_json_btn)
         bottom_row.addWidget(self.new_btn)
         bottom_row.addStretch()
         root.addLayout(bottom_row)
@@ -495,6 +664,8 @@ class MainWindow(QMainWindow):
     def set_busy(self, busy: bool, message: str = "") -> None:
         self.send_btn.setEnabled(not busy)
         self.save_btn.setEnabled(not busy)
+        self.export_md_btn.setEnabled(not busy)
+        self.export_json_btn.setEnabled(not busy)
         self.new_btn.setEnabled(not busy)
         if busy:
             self.progress.show()
@@ -625,6 +796,32 @@ class MainWindow(QMainWindow):
         selected = item.checkState() == Qt.CheckState.Checked
         self.session.set_temp_result_selected(int(index), selected)
 
+    def apply_temp_sort(self) -> None:
+        mode = self.sort_combo.currentIndex()
+        if mode == 1:
+            self.session.sort_temp_results(by_model=True)
+        elif mode == 2:
+            self.session.sort_temp_results(by_response=True)
+        self.populate_results_table()
+
+    def export_selected_markdown(self) -> None:
+        selected = self.session.get_selected_temp_results()
+        if not selected:
+            QMessageBox.information(self, "Экспорт", "Отметьте хотя бы один результат.")
+            return
+        content = export.temp_results_to_markdown(self.session.current_prompt_text, selected)
+        if save_text_to_file(self, "chatlist-export.md", content):
+            QMessageBox.information(self, "Экспорт", "Файл Markdown сохранён.")
+
+    def export_selected_json(self) -> None:
+        selected = self.session.get_selected_temp_results()
+        if not selected:
+            QMessageBox.information(self, "Экспорт", "Отметьте хотя бы один результат.")
+            return
+        content = export.temp_results_to_json(self.session.current_prompt_text, selected)
+        if save_text_to_file(self, "chatlist-export.json", content):
+            QMessageBox.information(self, "Экспорт", "Файл JSON сохранён.")
+
     def save_selected(self) -> None:
         selected = self.session.get_selected_temp_results()
         if not selected:
@@ -663,6 +860,11 @@ class MainWindow(QMainWindow):
 
     def open_results_dialog(self) -> None:
         ResultsDialog(self).exec()
+
+    def open_prompts_dialog(self) -> None:
+        dialog = PromptsDialog(self)
+        dialog.exec()
+        self.refresh_prompts_combo()
 
 
 def main() -> None:

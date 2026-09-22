@@ -23,7 +23,7 @@ class Model:
     api_id: str
     api_key_env: str
     is_active: bool
-    model_type: str = "openai"
+    model_type: str = "openrouter"
 
 
 @dataclass
@@ -97,6 +97,12 @@ class ChatSession:
         if 0 <= index < len(self._temp_results):
             self._temp_results[index].selected = selected
 
+    def sort_temp_results(self, *, by_model: bool = False, by_response: bool = False) -> None:
+        if by_model:
+            self._temp_results.sort(key=lambda item: item.model_name.lower())
+        elif by_response:
+            self._temp_results.sort(key=lambda item: item.response.lower())
+
     def reset_for_new_request(self) -> None:
         self.current_prompt_id = None
         self.current_prompt_text = ""
@@ -166,7 +172,7 @@ def add_model(
     api_id: str,
     api_key_env: str,
     is_active: bool = True,
-    model_type: str = "openai",
+    model_type: str = "openrouter",
 ) -> Model:
     model_id = db.add_model(name, api_url, api_id, api_key_env, is_active, model_type)
     row = db.get_model(model_id)
