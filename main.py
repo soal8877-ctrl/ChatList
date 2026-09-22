@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -49,6 +50,43 @@ def save_text_to_file(parent: QWidget, default_name: str, content: str) -> bool:
         return False
     Path(path).write_text(content, encoding="utf-8")
     return True
+
+
+class ResponseViewDialog(QDialog):
+    def __init__(
+        self,
+        model_name: str,
+        prompt: str,
+        response: str,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(f"Ответ — {model_name}")
+        self.resize(760, 580)
+
+        browser = QTextBrowser()
+        browser.setOpenExternalLinks(True)
+        browser.setMarkdown(self._build_markdown(model_name, prompt, response))
+
+        close_btn = QPushButton("Закрыть")
+        close_btn.clicked.connect(self.accept)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        buttons.addWidget(close_btn)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(browser, 1)
+        layout.addLayout(buttons)
+
+    @staticmethod
+    def _build_markdown(model_name: str, prompt: str, response: str) -> str:
+        lines = [f"# {model_name}", ""]
+        if prompt.strip():
+            lines.extend(["## Промт", "", prompt.strip(), ""])
+        lines.extend(["## Ответ", "", response.strip()])
+        return "\n".join(lines)
+
 
 class SendWorker(QThread):
     finished = pyqtSignal()
@@ -629,15 +667,23 @@ class MainWindow(QMainWindow):
         self.results_table = QTableWidget(0, 3)
         self.results_table.setHorizontalHeaderLabels(["Модель", "Ответ", "Выбрать"])
         self.results_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.results_table.setWordWrap(True)
+        self.results_table.setTextElideMode(Qt.TextElideMode.ElideNone)
         header = self.results_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        vheader = self.results_table.verticalHeader()
+        vheader.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        vheader.setMinimumSectionSize(96)
         self.results_table.cellChanged.connect(self.on_result_cell_changed)
+        self.results_table.cellDoubleClicked.connect(self.on_result_double_clicked)
         results_layout.addWidget(self.results_table)
         root.addWidget(results_group, 1)
 
         bottom_row = QHBoxLayout()
+        self.open_btn = QPushButton("Открыть")
+        self.open_btn.clicked.connect(self.open_selected_response)
         self.save_btn = QPushButton("Сохранить")
         self.save_btn.clicked.connect(self.save_selected)
         self.export_md_btn = QPushButton("Экспорт MD")
@@ -646,6 +692,7 @@ class MainWindow(QMainWindow):
         self.export_json_btn.clicked.connect(self.export_selected_json)
         self.new_btn = QPushButton("Новый запрос")
         self.new_btn.clicked.connect(self.new_request)
+        bottom_row.addWidget(self.open_btn)
         bottom_row.addWidget(self.save_btn)
         bottom_row.addWidget(self.export_md_btn)
         bottom_row.addWidget(self.export_json_btn)
@@ -663,6 +710,7 @@ class MainWindow(QMainWindow):
 
     def set_busy(self, busy: bool, message: str = "") -> None:
         self.send_btn.setEnabled(not busy)
+        self.open_btn.setEnabled(not busy)
         self.save_btn.setEnabled(not busy)
         self.export_md_btn.setEnabled(not busy)
         self.export_json_btn.setEnabled(not busy)
@@ -771,8 +819,19 @@ class MainWindow(QMainWindow):
         for index, item in enumerate(self.session.get_temp_results()):
             row = self.results_table.rowCount()
             self.results_table.insertRow(row)
-            self.results_table.setItem(row, 0, QTableWidgetItem(item.model_name))
-            self.results_table.setItem(row, 1, QTableWidgetItem(item.response))
+
+            model_item = QTableWidgetItem(item.model_name)
+            model_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
+            )
+            self.results_table.setItem(row, 0, model_item)
+
+            response_item = QTableWidgetItem(item.response)
+            response_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
+            )
+            self.results_table.setItem(row, 1, response_item)
+
             check_item = QTableWidgetItem()
             check_item.setFlags(
                 Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled
@@ -782,6 +841,11 @@ class MainWindow(QMainWindow):
             )
             check_item.setData(Qt.ItemDataRole.UserRole, index)
             self.results_table.setItem(row, 2, check_item)
+
+        self.results_table.resizeRowsToContents()
+        for row in range(self.results_table.rowCount()):
+            if self.results_table.rowHeight(row) < 96:
+                self.results_table.setRowHeight(row, 96)
         self.results_table.blockSignals(False)
 
     def on_result_cell_changed(self, row: int, column: int) -> None:
@@ -795,6 +859,44 @@ class MainWindow(QMainWindow):
             return
         selected = item.checkState() == Qt.CheckState.Checked
         self.session.set_temp_result_selected(int(index), selected)
+
+    def _response_from_row(self, row: int) -> tuple[str, str] | None:
+        if row < 0:
+            return None
+        model_item = self.results_table.item(row, 0)
+        response_item = self.results_table.item(row, 1)
+        if response_item is None:
+            return None
+        model_name = model_item.text() if model_item else "Модель"
+        return model_name, response_item.text()
+
+    def open_selected_response(self) -> None:
+        row = self.results_table.currentRow()
+        data = self._response_from_row(row)
+        if data is None:
+            QMessageBox.information(self, "Открыть", "Выберите строку с ответом в таблице.")
+            return
+        model_name, response = data
+        ResponseViewDialog(
+            model_name,
+            self.session.current_prompt_text,
+            response,
+            parent=self,
+        ).exec()
+
+    def on_result_double_clicked(self, row: int, column: int) -> None:
+        if column == 2:
+            return
+        data = self._response_from_row(row)
+        if data is None:
+            return
+        model_name, response = data
+        ResponseViewDialog(
+            model_name,
+            self.session.current_prompt_text,
+            response,
+            parent=self,
+        ).exec()
 
     def apply_temp_sort(self) -> None:
         mode = self.sort_combo.currentIndex()
