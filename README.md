@@ -36,6 +36,14 @@ python .\main.py
 3. Нажмите **Отправить** — ответы появятся в таблице.
 4. Отметьте нужные строки и нажмите **Сохранить**.
 5. Экспортируйте выбранные результаты в **Markdown** или **JSON**.
+6. Нажмите **Улучшить промт**, чтобы AI предложил улучшенные и альтернативные формулировки.
+
+### AI-ассистент промтов
+
+1. Введите текст промта.
+2. Нажмите **Улучшить промт**.
+3. В окне выберите вариант и нажмите **Подставить**.
+4. Модель ассистента настраивается в **Настройки → Модель ассистента**.
 
 ### Меню
 
@@ -53,7 +61,7 @@ python .\main.py
 ## Тесты
 
 ```powershell
-python -m unittest test_smoke.py -v
+python -m unittest test_smoke.py test_prompt_assistant.py -v
 ```
 
 ## Сборка exe
@@ -74,6 +82,7 @@ python -m PyInstaller --noconfirm --onefile --windowed --name ChatList .\main.py
 | `db.py` | SQLite |
 | `models.py` | Бизнес-логика |
 | `network.py` | Запросы к OpenRouter |
+| `prompt_assistant.py` | AI-ассистент для улучшения промтов |
 | `export.py` | Экспорт MD/JSON |
 | `logger.py` | Логирование запросов |
 | `DATABASE.md` | Схема БД |

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 
 import db
@@ -25,6 +26,32 @@ def setup_logger() -> logging.Logger:
     logger.addHandler(handler)
     logger.propagate = False
     return logger
+
+
+def setup_console_logger() -> logging.Logger:
+    logger = logging.getLogger("chatlist.console")
+    if logger.handlers:
+        return logger
+
+    logger.setLevel(logging.INFO)
+    stream = sys.stdout
+    if hasattr(stream, "reconfigure"):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            pass
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s | %(message)s", datefmt="%H:%M:%S")
+    )
+    logger.addHandler(handler)
+    logger.propagate = False
+    return logger
+
+
+def log_progress(message: str) -> None:
+    """Сообщение о ходе запросов в терминал (всегда, независимо от log_requests)."""
+    setup_console_logger().info(message)
 
 
 def is_logging_enabled() -> bool:

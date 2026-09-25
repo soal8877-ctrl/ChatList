@@ -255,3 +255,31 @@ def get_request_timeout() -> int:
 
 def get_env_file() -> str:
     return db.get_setting("env_file", ".env") or ".env"
+
+
+def get_assistant_settings() -> dict[str, str]:
+    settings = get_settings()
+    return {
+        "assistant_enabled": settings.get("assistant_enabled", "1"),
+        "assistant_model_id": settings.get("assistant_model_id", ""),
+    }
+
+
+def get_assistant_model() -> Model | None:
+    settings = get_assistant_settings()
+    if settings.get("assistant_enabled", "1") != "1":
+        return None
+
+    model_id_raw = settings.get("assistant_model_id", "").strip()
+    if model_id_raw:
+        try:
+            row = db.get_model(int(model_id_raw))
+            if row is not None:
+                return row_to_model(row)
+        except ValueError:
+            pass
+
+    for model in get_active_models():
+        return model
+    all_models = get_all_models()
+    return all_models[0] if all_models else None

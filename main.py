@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -37,6 +38,8 @@ import db
 import export
 import models
 import network
+import prompt_assistant
+from prompt_assistant import PromptImprovementResult
 
 
 def save_text_to_file(parent: QWidget, default_name: str, content: str) -> bool:
@@ -148,6 +151,111 @@ class ResponseViewDialog(QDialog):
                 ]
             )
         return "\n".join(lines).rstrip() + "\n"
+
+
+class ImprovePromptWorker(QThread):
+    finished = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(
+        self,
+        prompt_text: str,
+        model: models.Model,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self.prompt_text = prompt_text
+        self.model = model
+
+    def run(self) -> None:
+        result = prompt_assistant.improve_prompt(self.prompt_text, self.model)
+        if isinstance(result, str):
+            self.failed.emit(result)
+        else:
+            self.finished.emit(result)
+
+
+class PromptImprovementDialog(QDialog):
+    def __init__(
+        self,
+        result: PromptImprovementResult,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.selected_text = ""
+        self.setWindowTitle("Улучшение промта")
+        self.resize(760, 640)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+
+        layout.addWidget(self._make_section("Исходный промт", result.original, readonly=True))
+        layout.addWidget(
+            self._make_section("Улучшенный промт", result.improved, button_label="Подставить")
+        )
+
+        for suggestion in result.alternatives:
+            layout.addWidget(
+                self._make_section(
+                    suggestion.label,
+                    suggestion.text,
+                    button_label="Подставить",
+                )
+            )
+
+        for suggestion in result.adaptations:
+            layout.addWidget(
+                self._make_section(
+                    suggestion.label,
+                    suggestion.text,
+                    button_label="Подставить",
+                )
+            )
+
+        layout.addStretch()
+        scroll.setWidget(content)
+
+        close_btn = QPushButton("Закрыть")
+        close_btn.clicked.connect(self.reject)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        buttons.addWidget(close_btn)
+
+        root = QVBoxLayout(self)
+        root.addWidget(scroll, 1)
+        root.addLayout(buttons)
+
+    def _make_section(
+        self,
+        title: str,
+        text: str,
+        *,
+        readonly: bool = False,
+        button_label: str | None = None,
+    ) -> QWidget:
+        box = QGroupBox(title)
+        box_layout = QVBoxLayout(box)
+        editor = QPlainTextEdit()
+        editor.setPlainText(text)
+        editor.setReadOnly(readonly)
+        editor.setMinimumHeight(90)
+        box_layout.addWidget(editor)
+
+        if button_label:
+            button = QPushButton(button_label)
+            button.clicked.connect(lambda: self._apply_text(editor.toPlainText()))
+            box_layout.addWidget(button)
+        return box
+
+    def _apply_text(self, text: str) -> None:
+        cleaned = text.strip()
+        if not cleaned:
+            return
+        self.selected_text = cleaned
+        self.accept()
 
 
 class SendWorker(QThread):
@@ -431,12 +539,21 @@ class SettingsDialog(QDialog):
         self.log_requests_check = QCheckBox("Логировать запросы")
         self.log_requests_check.setChecked(settings.get("log_requests", "0") == "1")
         self.default_tags_edit = QLineEdit(settings.get("default_tags", ""))
+        self.assistant_enabled_check = QCheckBox("Включить AI-ассистент промтов")
+        self.assistant_enabled_check.setChecked(
+            settings.get("assistant_enabled", "1") == "1"
+        )
+        self.assistant_model_combo = QComboBox()
+        self.assistant_model_combo.setMinimumWidth(280)
+        self._load_assistant_models(settings.get("assistant_model_id", ""))
 
         form = QFormLayout()
         form.addRow("Таймаут запросов (с):", self.timeout_spin)
         form.addRow("Файл .env:", self.env_file_edit)
         form.addRow("Теги по умолчанию:", self.default_tags_edit)
         form.addRow("", self.log_requests_check)
+        form.addRow("", self.assistant_enabled_check)
+        form.addRow("Модель ассистента:", self.assistant_model_combo)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
@@ -448,13 +565,31 @@ class SettingsDialog(QDialog):
         layout.addLayout(form)
         layout.addWidget(buttons)
 
+    def _load_assistant_models(self, selected_id: str) -> None:
+        self.assistant_model_combo.clear()
+        all_models = models.get_all_models()
+        if not all_models:
+            self.assistant_model_combo.addItem("— модели не найдены —", "")
+            return
+
+        selected_index = 0
+        for index, model in enumerate(all_models):
+            label = f"{model.name} ({'активна' if model.is_active else 'выкл.'})"
+            self.assistant_model_combo.addItem(label, str(model.id))
+            if selected_id and str(model.id) == selected_id:
+                selected_index = index
+        self.assistant_model_combo.setCurrentIndex(selected_index)
+
     def save(self) -> None:
+        assistant_model_id = self.assistant_model_combo.currentData() or ""
         models.save_settings(
             {
                 "request_timeout": str(self.timeout_spin.value()),
                 "env_file": self.env_file_edit.text().strip() or ".env",
                 "log_requests": "1" if self.log_requests_check.isChecked() else "0",
                 "default_tags": self.default_tags_edit.text().strip(),
+                "assistant_enabled": "1" if self.assistant_enabled_check.isChecked() else "0",
+                "assistant_model_id": assistant_model_id,
             }
         )
         network.load_env(models.get_env_file())
@@ -724,6 +859,7 @@ class MainWindow(QMainWindow):
         network.load_env(models.get_env_file())
         self.session = models.ChatSession()
         self.worker: SendWorker | None = None
+        self.improve_worker: ImprovePromptWorker | None = None
 
         self._build_menu()
         self._build_ui()
@@ -779,6 +915,9 @@ class MainWindow(QMainWindow):
         options_row.addWidget(self.tags_edit, 1)
         self.save_prompt_check = QCheckBox("Сохранить промт в базу")
         options_row.addWidget(self.save_prompt_check)
+        self.improve_btn = QPushButton("Улучшить промт")
+        self.improve_btn.clicked.connect(self.improve_prompt)
+        options_row.addWidget(self.improve_btn)
         self.send_btn = QPushButton("Отправить")
         self.send_btn.clicked.connect(self.send_prompt)
         options_row.addWidget(self.send_btn)
@@ -844,6 +983,7 @@ class MainWindow(QMainWindow):
 
     def set_busy(self, busy: bool, message: str = "") -> None:
         self.send_btn.setEnabled(not busy)
+        self.improve_btn.setEnabled(not busy)
         self.open_btn.setEnabled(not busy)
         self.save_btn.setEnabled(not busy)
         self.export_md_btn.setEnabled(not busy)
@@ -908,6 +1048,52 @@ class MainWindow(QMainWindow):
 
         self.session.set_current_prompt(text, prompt_id, tags)
         return True
+
+    def improve_prompt(self) -> None:
+        if self.improve_worker and self.improve_worker.isRunning():
+            return
+
+        text = self._current_prompt_text()
+        if not text:
+            QMessageBox.warning(self, "Промт", "Введите текст промта.")
+            return
+
+        assistant_model = models.get_assistant_model()
+        if assistant_model is None:
+            QMessageBox.warning(
+                self,
+                "AI-ассистент",
+                "Ассистент отключён или модель не выбрана. "
+                "Откройте «Настройки» и укажите модель для улучшения промтов.",
+            )
+            return
+
+        self.set_busy(True, f"Улучшение промта ({assistant_model.name})...")
+        self.improve_worker = ImprovePromptWorker(
+            text,
+            assistant_model,
+            parent=self,
+        )
+        self.improve_worker.finished.connect(self.on_improve_finished)
+        self.improve_worker.failed.connect(self.on_improve_failed)
+        self.improve_worker.start()
+
+    def on_improve_finished(self, result: PromptImprovementResult) -> None:
+        self.set_busy(False, "Промт улучшен")
+        dialog = PromptImprovementDialog(result, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        if dialog.selected_text:
+            self.prompt_edit.setPlainText(dialog.selected_text)
+            self.session.set_current_prompt(
+                dialog.selected_text,
+                self.session.current_prompt_id,
+                self.session.current_tags,
+            )
+
+    def on_improve_failed(self, message: str) -> None:
+        self.set_busy(False, "Ошибка улучшения")
+        QMessageBox.critical(self, "AI-ассистент", message)
 
     def send_prompt(self) -> None:
         if self.worker and self.worker.isRunning():

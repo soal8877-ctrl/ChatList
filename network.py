@@ -107,10 +107,13 @@ def validate_model(model: models.Model) -> str | None:
     return None
 
 
-def _build_openrouter_payload(model: models.Model, prompt: str) -> dict:
+def _build_openrouter_payload(
+    model: models.Model,
+    messages: list[dict[str, str]],
+) -> dict:
     return {
         "model": model.api_id,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": messages,
     }
 
 
@@ -145,22 +148,39 @@ def _format_http_error(model: models.Model, exc: httpx.HTTPStatusError) -> str:
     return f"Ошибка HTTP {status}: {detail or exc.response.reason_phrase}"
 
 
-def send_openrouter(
+def _request_openrouter(
     model: models.Model,
-    prompt: str,
+    messages: list[dict[str, str]],
     timeout: int,
-    env_file: str | None = None,
+    env_file: str | None,
+    *,
+    log_status: str = "ok",
+    error_log_status: str | None = None,
 ) -> str:
     validation_error = validate_model(model)
     if validation_error:
-        logger.log_request(model.name, model.api_id, prompt, "validation_error", validation_error)
+        logger.log_progress(f"!! {model.name}: {validation_error}")
+        logger.log_request(
+            model.name,
+            model.api_id,
+            messages[-1]["content"] if messages else "",
+            error_log_status or "validation_error",
+            validation_error,
+        )
         return validation_error
 
     api_key = get_api_key(model.api_key_env or OPENROUTER_API_KEY_ENV, env_file)
     if not api_key:
         env_name = model.api_key_env or OPENROUTER_API_KEY_ENV
         message = format_auth_error(env_name, env_file)
-        logger.log_request(model.name, model.api_id, prompt, "auth_error", message)
+        logger.log_progress(f"!! {model.name}: ключ API не найден")
+        logger.log_request(
+            model.name,
+            model.api_id,
+            messages[-1]["content"] if messages else "",
+            error_log_status or "auth_error",
+            message,
+        )
         return message
 
     headers = {
@@ -169,41 +189,127 @@ def send_openrouter(
         "HTTP-Referer": "https://github.com/ChatList",
         "X-Title": "ChatList",
     }
-    payload = _build_openrouter_payload(model, prompt)
+    payload = _build_openrouter_payload(model, messages)
     api_url = model.api_url if model.api_url else OPENROUTER_API_URL
+    prompt_preview = messages[-1]["content"] if messages else ""
     start = time.perf_counter()
+    logger.log_progress(f">> {model.name} ({model.api_id}): отправка запроса...")
 
     try:
         with httpx.Client(timeout=timeout) as client:
             for attempt in range(MAX_RETRIES):
                 response = client.post(api_url, headers=headers, json=payload)
                 if response.status_code in RETRYABLE_STATUS and attempt < MAX_RETRIES - 1:
-                    time.sleep(_retry_delay(response, attempt))
+                    delay = _retry_delay(response, attempt)
+                    logger.log_progress(
+                        f".. {model.name}: HTTP {response.status_code}, "
+                        f"повтор {attempt + 2}/{MAX_RETRIES} через {delay:.1f} с..."
+                    )
+                    time.sleep(delay)
                     continue
                 response.raise_for_status()
                 text = _parse_openrouter_response(response.json())
                 duration_ms = int((time.perf_counter() - start) * 1000)
-                logger.log_request(model.name, model.api_id, prompt, "ok", duration_ms=duration_ms)
+                logger.log_progress(
+                    f"<< {model.name}: ответ получен "
+                    f"({duration_ms} мс, {len(text)} симв.)"
+                )
+                logger.log_request(
+                    model.name,
+                    model.api_id,
+                    prompt_preview,
+                    log_status,
+                    duration_ms=duration_ms,
+                )
                 return text
     except httpx.TimeoutException:
         message = f"Ошибка: превышен таймаут ({timeout} с) для модели {model.name}"
         duration_ms = int((time.perf_counter() - start) * 1000)
-        logger.log_request(model.name, model.api_id, prompt, "timeout", message, duration_ms)
+        logger.log_progress(f"!! {model.name}: таймаут ({timeout} с)")
+        logger.log_request(
+            model.name,
+            model.api_id,
+            prompt_preview,
+            error_log_status or "timeout",
+            message,
+            duration_ms,
+        )
         return message
     except httpx.HTTPStatusError as exc:
         message = _format_http_error(model, exc)
         duration_ms = int((time.perf_counter() - start) * 1000)
-        logger.log_request(model.name, model.api_id, prompt, "http_error", message, duration_ms)
+        logger.log_progress(
+            f"!! {model.name}: HTTP {exc.response.status_code} ({duration_ms} мс)"
+        )
+        logger.log_request(
+            model.name,
+            model.api_id,
+            prompt_preview,
+            error_log_status or "http_error",
+            message,
+            duration_ms,
+        )
         return message
     except httpx.RequestError as exc:
         message = f"Ошибка сети: {exc}"
         duration_ms = int((time.perf_counter() - start) * 1000)
-        logger.log_request(model.name, model.api_id, prompt, "network_error", message, duration_ms)
+        logger.log_progress(f"!! {model.name}: ошибка сети ({duration_ms} мс)")
+        logger.log_request(
+            model.name,
+            model.api_id,
+            prompt_preview,
+            error_log_status or "network_error",
+            message,
+            duration_ms,
+        )
         return message
     except ValueError as exc:
         duration_ms = int((time.perf_counter() - start) * 1000)
-        logger.log_request(model.name, model.api_id, prompt, "parse_error", str(exc), duration_ms)
+        logger.log_progress(f"!! {model.name}: ошибка разбора ответа ({duration_ms} мс)")
+        logger.log_request(
+            model.name,
+            model.api_id,
+            prompt_preview,
+            error_log_status or "parse_error",
+            str(exc),
+            duration_ms,
+        )
         return str(exc)
+
+
+def send_openrouter(
+    model: models.Model,
+    prompt: str,
+    timeout: int,
+    env_file: str | None = None,
+) -> str:
+    messages = [{"role": "user", "content": prompt}]
+    return _request_openrouter(model, messages, timeout, env_file)
+
+
+def send_chat(
+    model: models.Model,
+    messages: list[dict[str, str]],
+    timeout: int | None = None,
+    env_file: str | None = None,
+    *,
+    log_status: str = "ok",
+    error_log_status: str | None = None,
+) -> str:
+    if timeout is None:
+        timeout = models.get_request_timeout()
+    if env_file is None:
+        env_file = models.get_env_file()
+
+    load_env(env_file)
+    return _request_openrouter(
+        model,
+        messages,
+        timeout,
+        env_file,
+        log_status=log_status,
+        error_log_status=error_log_status,
+    )
 
 
 ADAPTERS: dict[str, AdapterFunc] = {
@@ -245,6 +351,11 @@ def send_prompt_to_all(
     if not model_list:
         return []
 
+    model_names = ", ".join(f"{model.name} ({model.api_id})" for model in model_list)
+    logger.log_progress(
+        f"Начало отправки промта в {len(model_list)} модель(ей): {model_names}"
+    )
+
     def _send_one(model: models.Model) -> models.TempResult:
         response = send_prompt(model, prompt, timeout, env_file)
         return models.TempResult(
@@ -281,4 +392,5 @@ def send_prompt_to_all(
             )
             results.append(item)
 
+    logger.log_progress(f"Готово: получено {len(results)} ответ(ов)")
     return results

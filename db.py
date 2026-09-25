@@ -59,6 +59,8 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "env_file": ".env",
     "log_requests": "0",
     "default_tags": "",
+    "assistant_enabled": "1",
+    "assistant_model_id": "",
 }
 
 SEED_MODELS: list[dict[str, Any]] = [
@@ -138,6 +140,7 @@ def init_db() -> None:
         conn.executescript(SCHEMA_SQL)
         _seed_if_empty(conn)
         _migrate_to_openrouter(conn)
+        _ensure_assistant_settings(conn)
 
 
 def _insert_seed_model(conn: sqlite3.Connection, model: dict[str, Any]) -> None:
@@ -205,6 +208,49 @@ def _apply_default_model_priorities(conn: sqlite3.Connection) -> None:
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
         """,
         (MODEL_PRIORITIES_VERSION,),
+    )
+
+
+def _ensure_assistant_settings(conn: sqlite3.Connection) -> None:
+    defaults = {
+        key: value for key, value in DEFAULT_SETTINGS.items() if key.startswith("assistant_")
+    }
+    for key, value in defaults.items():
+        conn.execute(
+            """
+            INSERT INTO settings (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO NOTHING
+            """,
+            (key, value),
+        )
+
+    current = conn.execute(
+        "SELECT value FROM settings WHERE key = 'assistant_model_id'"
+    ).fetchone()
+    if current and current[0]:
+        return
+
+    preferred = conn.execute(
+        "SELECT id FROM models WHERE name = ? LIMIT 1",
+        ("OpenRouter Free",),
+    ).fetchone()
+    if preferred is None:
+        preferred = conn.execute(
+            "SELECT id FROM models WHERE is_active = 1 ORDER BY name LIMIT 1"
+        ).fetchone()
+    if preferred is None:
+        preferred = conn.execute(
+            "SELECT id FROM models ORDER BY name LIMIT 1"
+        ).fetchone()
+    if preferred is None:
+        return
+
+    conn.execute(
+        """
+        INSERT INTO settings (key, value) VALUES ('assistant_model_id', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """,
+        (str(preferred[0]),),
     )
 
 
