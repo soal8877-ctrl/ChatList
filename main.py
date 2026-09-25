@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -40,6 +40,37 @@ import models
 import network
 import prompt_assistant
 from prompt_assistant import PromptImprovementResult
+
+ICON_FILE = "app.ico"
+
+
+def resolve_icon_path() -> Path | None:
+    candidates: list[Path] = []
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidates.append(Path(meipass) / ICON_FILE)
+        candidates.append(Path(sys.executable).resolve().parent / ICON_FILE)
+    candidates.extend(
+        [
+            Path(__file__).resolve().parent / ICON_FILE,
+            Path.cwd() / ICON_FILE,
+        ]
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def setup_app_icon(app: QApplication) -> None:
+    icon_path = resolve_icon_path()
+    if icon_path is None:
+        return
+    icon = QIcon(str(icon_path))
+    if icon.isNull():
+        return
+    app.setWindowIcon(icon)
 
 
 def save_text_to_file(parent: QWidget, default_name: str, content: str) -> bool:
@@ -1291,6 +1322,7 @@ class MainWindow(QMainWindow):
 
 def main() -> None:
     app = QApplication(sys.argv)
+    setup_app_icon(app)
     window = MainWindow()
     window.show()
     sys.exit(app.exec())

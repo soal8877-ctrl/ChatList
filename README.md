@@ -66,8 +66,16 @@ python -m unittest test_smoke.py test_prompt_assistant.py -v
 
 ## Сборка exe
 
+Сначала создайте иконку (если ещё не создана):
+
 ```powershell
-python -m PyInstaller --noconfirm --onefile --windowed --name ChatList .\main.py
+python .\create_icon.py
+```
+
+Сборка с иконкой окна и файла `ChatList.exe`:
+
+```powershell
+python -m PyInstaller --noconfirm --onefile --windowed --name ChatList --icon app.ico --add-data "app.ico;." .\main.py
 ```
 
 Исполняемый файл: `dist\ChatList.exe`
@@ -85,6 +93,8 @@ python -m PyInstaller --noconfirm --onefile --windowed --name ChatList .\main.py
 | `prompt_assistant.py` | AI-ассистент для улучшения промтов |
 | `export.py` | Экспорт MD/JSON |
 | `logger.py` | Логирование запросов |
+| `create_icon.py` | Генерация `app.ico` |
+| `app.ico` | Иконка приложения |
 | `DATABASE.md` | Схема БД |
 | `PLAN.md` | План разработки |
 
