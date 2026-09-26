@@ -257,6 +257,19 @@ def get_env_file() -> str:
     return db.get_setting("env_file", ".env") or ".env"
 
 
+def get_ui_theme() -> str:
+    value = db.get_setting("theme", "light") or "light"
+    return value if value in {"light", "dark"} else "light"
+
+
+def get_ui_font_size() -> int:
+    value = db.get_setting("ui_font_size", "10")
+    try:
+        return max(8, min(24, int(value or "10")))
+    except ValueError:
+        return 10
+
+
 def get_assistant_settings() -> dict[str, str]:
     settings = get_settings()
     return {

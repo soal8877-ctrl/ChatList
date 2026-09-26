@@ -59,6 +59,8 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "env_file": ".env",
     "log_requests": "0",
     "default_tags": "",
+    "theme": "light",
+    "ui_font_size": "10",
     "assistant_enabled": "1",
     "assistant_model_id": "",
 }
@@ -141,6 +143,7 @@ def init_db() -> None:
         _seed_if_empty(conn)
         _migrate_to_openrouter(conn)
         _ensure_assistant_settings(conn)
+        _ensure_ui_settings(conn)
 
 
 def _insert_seed_model(conn: sqlite3.Connection, model: dict[str, Any]) -> None:
@@ -252,6 +255,22 @@ def _ensure_assistant_settings(conn: sqlite3.Connection) -> None:
         """,
         (str(preferred[0]),),
     )
+
+
+def _ensure_ui_settings(conn: sqlite3.Connection) -> None:
+    defaults = {
+        key: value
+        for key, value in DEFAULT_SETTINGS.items()
+        if key in {"theme", "ui_font_size"}
+    }
+    for key, value in defaults.items():
+        conn.execute(
+            """
+            INSERT INTO settings (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO NOTHING
+            """,
+            (key, value),
+        )
 
 
 # --- prompts ---

@@ -89,6 +89,13 @@ class ChatListSmokeTests(unittest.TestCase):
         names = {model.name for model in models.get_all_models()}
         self.assertIn("OpenRouter Free", names)
 
+    def test_ui_settings_defaults(self) -> None:
+        self.assertEqual(models.get_ui_theme(), "light")
+        self.assertEqual(models.get_ui_font_size(), 10)
+        models.save_settings({"theme": "dark", "ui_font_size": "14"})
+        self.assertEqual(models.get_ui_theme(), "dark")
+        self.assertEqual(models.get_ui_font_size(), 14)
+
 
 if __name__ == "__main__":
     unittest.main()

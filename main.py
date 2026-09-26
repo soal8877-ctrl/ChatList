@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QAction, QIcon
+from PyQt6.QtGui import QAction, QColor, QIcon, QPalette
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -42,6 +42,8 @@ import prompt_assistant
 from prompt_assistant import PromptImprovementResult
 
 ICON_FILE = "app.ico"
+APP_NAME = "ChatList"
+APP_VERSION = "1.0"
 
 
 def resolve_icon_path() -> Path | None:
@@ -71,6 +73,40 @@ def setup_app_icon(app: QApplication) -> None:
     if icon.isNull():
         return
     app.setWindowIcon(icon)
+
+
+def _dark_palette() -> QPalette:
+    palette = QPalette()
+    palette.setColor(QPalette.ColorRole.Window, QColor(53, 53, 53))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor(255, 255, 255))
+    palette.setColor(QPalette.ColorRole.Base, QColor(35, 35, 35))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(53, 53, 53))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(255, 255, 220))
+    palette.setColor(QPalette.ColorRole.ToolTipText, QColor(0, 0, 0))
+    palette.setColor(QPalette.ColorRole.Text, QColor(255, 255, 255))
+    palette.setColor(QPalette.ColorRole.Button, QColor(53, 53, 53))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor(255, 255, 255))
+    palette.setColor(QPalette.ColorRole.BrightText, QColor(255, 0, 0))
+    palette.setColor(QPalette.ColorRole.Link, QColor(42, 130, 218))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(42, 130, 218))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
+    return palette
+
+
+def apply_ui_settings(app: QApplication | None = None) -> None:
+    target = app or QApplication.instance()
+    if target is None:
+        return
+
+    target.setStyle("Fusion")
+    if models.get_ui_theme() == "dark":
+        target.setPalette(_dark_palette())
+    else:
+        target.setPalette(target.style().standardPalette())
+
+    font = target.font()
+    font.setPointSize(models.get_ui_font_size())
+    target.setFont(font)
 
 
 def save_text_to_file(parent: QWidget, default_name: str, content: str) -> bool:
@@ -570,6 +606,14 @@ class SettingsDialog(QDialog):
         self.log_requests_check = QCheckBox("Логировать запросы")
         self.log_requests_check.setChecked(settings.get("log_requests", "0") == "1")
         self.default_tags_edit = QLineEdit(settings.get("default_tags", ""))
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItem("Светлая", "light")
+        self.theme_combo.addItem("Тёмная", "dark")
+        theme_index = self.theme_combo.findData(models.get_ui_theme())
+        self.theme_combo.setCurrentIndex(theme_index if theme_index >= 0 else 0)
+        self.font_size_spin = QSpinBox()
+        self.font_size_spin.setRange(8, 24)
+        self.font_size_spin.setValue(models.get_ui_font_size())
         self.assistant_enabled_check = QCheckBox("Включить AI-ассистент промтов")
         self.assistant_enabled_check.setChecked(
             settings.get("assistant_enabled", "1") == "1"
@@ -582,6 +626,8 @@ class SettingsDialog(QDialog):
         form.addRow("Таймаут запросов (с):", self.timeout_spin)
         form.addRow("Файл .env:", self.env_file_edit)
         form.addRow("Теги по умолчанию:", self.default_tags_edit)
+        form.addRow("Тема:", self.theme_combo)
+        form.addRow("Размер шрифта:", self.font_size_spin)
         form.addRow("", self.log_requests_check)
         form.addRow("", self.assistant_enabled_check)
         form.addRow("Модель ассистента:", self.assistant_model_combo)
@@ -619,12 +665,60 @@ class SettingsDialog(QDialog):
                 "env_file": self.env_file_edit.text().strip() or ".env",
                 "log_requests": "1" if self.log_requests_check.isChecked() else "0",
                 "default_tags": self.default_tags_edit.text().strip(),
+                "theme": self.theme_combo.currentData() or "light",
+                "ui_font_size": str(self.font_size_spin.value()),
                 "assistant_enabled": "1" if self.assistant_enabled_check.isChecked() else "0",
                 "assistant_model_id": assistant_model_id,
             }
         )
         network.load_env(models.get_env_file())
+        apply_ui_settings(QApplication.instance())
         self.accept()
+
+
+class AboutDialog(QDialog):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("О программе")
+        self.setMinimumWidth(480)
+
+        text = QTextBrowser()
+        text.setOpenExternalLinks(True)
+        text.setMarkdown(
+            f"""# {APP_NAME}
+
+**Версия:** {APP_VERSION}
+
+{APP_NAME} — приложение для отправки одного промта в несколько нейросетей через **OpenRouter** и сравнения их ответов.
+
+## Возможности
+
+- отправка промта в активные бесплатные модели;
+- сохранение выбранных ответов в SQLite;
+- экспорт в Markdown и JSON;
+- AI-ассистент для улучшения промтов.
+
+## Стек
+
+- Python 3.11+
+- PyQt6
+- SQLite
+- OpenRouter API
+
+Подробнее: [openrouter.ai](https://openrouter.ai)
+"""
+        )
+
+        close_btn = QPushButton("Закрыть")
+        close_btn.clicked.connect(self.accept)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        buttons.addWidget(close_btn)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(text)
+        layout.addLayout(buttons)
 
 
 class PromptsDialog(QDialog):
@@ -888,6 +982,7 @@ class MainWindow(QMainWindow):
 
         db.init_db()
         network.load_env(models.get_env_file())
+        apply_ui_settings(QApplication.instance())
         self.session = models.ChatSession()
         self.worker: SendWorker | None = None
         self.improve_worker: ImprovePromptWorker | None = None
@@ -914,6 +1009,10 @@ class MainWindow(QMainWindow):
         prompts_action = QAction("Промты", self)
         prompts_action.triggered.connect(self.open_prompts_dialog)
         menu_bar.addAction(prompts_action)
+
+        about_action = QAction("О программе", self)
+        about_action.triggered.connect(self.open_about_dialog)
+        menu_bar.addAction(about_action)
 
     def _build_ui(self) -> None:
         central = QWidget()
@@ -1311,6 +1410,9 @@ class MainWindow(QMainWindow):
     def open_settings_dialog(self) -> None:
         SettingsDialog(self).exec()
 
+    def open_about_dialog(self) -> None:
+        AboutDialog(self).exec()
+
     def open_results_dialog(self) -> None:
         ResultsDialog(self).exec()
 
@@ -1323,6 +1425,8 @@ class MainWindow(QMainWindow):
 def main() -> None:
     app = QApplication(sys.argv)
     setup_app_icon(app)
+    db.init_db()
+    apply_ui_settings(app)
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
