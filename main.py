@@ -36,14 +36,15 @@ from PyQt6.QtWidgets import (
 
 import db
 import export
+import logger
 import models
 import network
 import prompt_assistant
 from prompt_assistant import PromptImprovementResult
+import version
 
 ICON_FILE = "app.ico"
 APP_NAME = "ChatList"
-APP_VERSION = "1.0"
 
 
 def resolve_icon_path() -> Path | None:
@@ -687,7 +688,7 @@ class AboutDialog(QDialog):
         text.setMarkdown(
             f"""# {APP_NAME}
 
-**Версия:** {APP_VERSION}
+**Версия:** {version.__version__}
 
 {APP_NAME} — приложение для отправки одного промта в несколько нейросетей через **OpenRouter** и сравнения их ответов.
 
@@ -977,7 +978,7 @@ class ResultsDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("ChatList")
+        self.setWindowTitle(f"{APP_NAME} {version.__version__}")
         self.resize(980, 680)
 
         db.init_db()
@@ -1427,6 +1428,7 @@ def main() -> None:
     setup_app_icon(app)
     db.init_db()
     apply_ui_settings(app)
+    logger.log_app_start()
     window = MainWindow()
     window.show()
     sys.exit(app.exec())

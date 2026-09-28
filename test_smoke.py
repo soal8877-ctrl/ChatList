@@ -96,6 +96,12 @@ class ChatListSmokeTests(unittest.TestCase):
         self.assertEqual(models.get_ui_theme(), "dark")
         self.assertEqual(models.get_ui_font_size(), 14)
 
+    def test_version_module(self) -> None:
+        import version
+
+        self.assertTrue(version.__version__)
+        self.assertRegex(version.__version__, r"^\d+\.\d+\.\d+$")
+
 
 if __name__ == "__main__":
     unittest.main()

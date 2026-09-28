@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import db
+import version
 
 LOG_DIR = Path(__file__).resolve().parent / "logs"
 LOG_FILE = LOG_DIR / "chatlist.log"
@@ -21,7 +22,9 @@ def setup_logger() -> logging.Logger:
     logger.setLevel(logging.INFO)
     handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
     handler.setFormatter(
-        logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+        logging.Formatter(
+            f"%(asctime)s | v{version.__version__} | %(levelname)s | %(message)s"
+        )
     )
     logger.addHandler(handler)
     logger.propagate = False
@@ -51,7 +54,11 @@ def setup_console_logger() -> logging.Logger:
 
 def log_progress(message: str) -> None:
     """Сообщение о ходе запросов в терминал (всегда, независимо от log_requests)."""
-    setup_console_logger().info(message)
+    setup_console_logger().info(f"v{version.__version__} | {message}")
+
+
+def log_app_start() -> None:
+    setup_logger().info("application started")
 
 
 def is_logging_enabled() -> bool:
@@ -71,6 +78,7 @@ def log_request(
 
     prompt_preview = prompt.replace("\n", " ")[:120]
     parts = [
+        f"version={version.__version__}",
         f"model={model_name}",
         f"api_id={api_id}",
         f"status={status}",

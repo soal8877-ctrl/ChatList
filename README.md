@@ -66,19 +66,24 @@ python -m unittest test_smoke.py test_prompt_assistant.py -v
 
 ## Сборка exe
 
+Версия приложения задаётся в `version.py` (`__version__`).
+
 Сначала создайте иконку (если ещё не создана):
 
 ```powershell
 python .\create_icon.py
 ```
 
-Сборка с иконкой окна и файла `ChatList.exe`:
+Сборка exe и установщика `ChatList-<версия>-setup.zip`:
 
 ```powershell
-python -m PyInstaller --noconfirm --onefile --windowed --name ChatList --icon app.ico --add-data "app.ico;." .\main.py
+python .\build.py
 ```
 
-Исполняемый файл: `dist\ChatList.exe`
+Результат:
+
+- `dist\ChatList.exe` — исполняемый файл с версией в свойствах Windows
+- `dist\ChatList-<версия>-setup.zip` — установщик (архив с exe, `.env.example`, README)
 
 > Рядом с exe должны лежать `.env` и файл БД `chatlist.db` (создаётся при первом запуске).
 
@@ -93,6 +98,8 @@ python -m PyInstaller --noconfirm --onefile --windowed --name ChatList --icon ap
 | `prompt_assistant.py` | AI-ассистент для улучшения промтов |
 | `export.py` | Экспорт MD/JSON |
 | `logger.py` | Логирование запросов |
+| `version.py` | Версия приложения (`__version__`) |
+| `build.py` | Сборка exe и установщика |
 | `create_icon.py` | Генерация `app.ico` |
 | `app.ico` | Иконка приложения |
 | `DATABASE.md` | Схема БД |
