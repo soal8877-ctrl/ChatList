@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="ChatList — отправка одного промта в несколько бесплатных моделей OpenRouter и сравнение ответов.">
+  <title>ChatList — сравнение ответов нейросетей</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --text: #e7ecf3;
+      --muted: #9aa7b8;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --border: #2a3544;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    .wrap {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 48px 20px 64px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .logo {
+      width: 72px;
+      height: 72px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6, #ec4899);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      font-size: 2.4rem;
+      margin-bottom: 12px;
+    }
+
+    .tagline {
+      color: var(--muted);
+      font-size: 1.1rem;
+      max-width: 640px;
+      margin: 0 auto 24px;
+    }
+
+    .version {
+      display: inline-block;
+      padding: 4px 12px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .actions {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin: 32px 0 48px;
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 14px 28px;
+      border-radius: 10px;
+      text-decoration: none;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-primary:hover { background: var(--accent-hover); }
+
+    .btn-secondary {
+      border: 1px solid var(--border);
+      color: var(--text);
+      background: var(--surface);
+    }
+
+    .btn-secondary:hover { border-color: var(--accent); }
+
+    section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px;
+      margin-bottom: 20px;
+    }
+
+    h2 {
+      font-size: 1.25rem;
+      margin-bottom: 16px;
+    }
+
+    ul { padding-left: 20px; }
+    li { margin-bottom: 8px; color: var(--muted); }
+    li strong { color: var(--text); }
+
+    code {
+      background: #0b1017;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.9em;
+    }
+
+    .steps ol {
+      padding-left: 20px;
+      color: var(--muted);
+    }
+
+    .steps li { margin-bottom: 10px; }
+
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-top: 40px;
+    }
+
+    footer a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo">CL</div>
+      <h1>ChatList</h1>
+      <p class="tagline">
+        Отправьте один промт в несколько бесплатных моделей OpenRouter,
+        сравните ответы и сохраните лучшие.
+      </p>
+      <span class="version">v1.0.0 · Windows</span>
+
+      <div class="actions">
+        <a class="btn btn-primary" href="https://github.com/soal8877-ctrl/ChatList/releases/latest/download/ChatList-setup.exe">
+          Скачать установщик
+        </a>
+        <a class="btn btn-secondary" href="https://github.com/soal8877-ctrl/ChatList/releases/latest">
+          Все релизы
+        </a>
+        <a class="btn btn-secondary" href="https://github.com/soal8877-ctrl/ChatList">
+          GitHub
+        </a>
+      </div>
+    </header>
+
+    <section>
+      <h2>Возможности</h2>
+      <ul>
+        <li><strong>Несколько моделей</strong> — один промт, несколько ответов в таблице</li>
+        <li><strong>OpenRouter Free</strong> — только бесплатные модели <code>:free</code></li>
+        <li><strong>AI-ассистент</strong> — улучшение и переформулировка промтов</li>
+        <li><strong>SQLite</strong> — сохранение промтов и результатов</li>
+        <li><strong>Экспорт</strong> — Markdown и JSON</li>
+        <li><strong>Тема и шрифт</strong> — светлая/тёмная тема, размер шрифта</li>
+      </ul>
+    </section>
+
+    <section class="steps">
+      <h2>Быстрый старт</h2>
+      <ol>
+        <li>Скачайте и установите <strong>ChatList-setup.exe</strong>.</li>
+        <li>Скопируйте <code>.env.example</code> в <code>.env</code> в папке программы.</li>
+        <li>Укажите ключ <code>OPENROUTER_API_KEY</code> — получить на <a href="https://openrouter.ai/keys">openrouter.ai/keys</a>.</li>
+        <li>Запустите ChatList, включите модели в меню «Модели» и нажмите «Отправить».</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Требования</h2>
+      <ul>
+        <li>Windows 10/11 (64-bit)</li>
+        <li>Ключ API OpenRouter (бесплатный тариф с лимитами)</li>
+        <li>Интернет-соединение</li>
+      </ul>
+    </section>
+
+    <footer>
+      <p>
+        Лицензия MIT ·
+        <a href="https://github.com/soal8877-ctrl/ChatList/blob/main/README.md">Документация</a> ·
+        <a href="https://github.com/soal8877-ctrl/ChatList/blob/main/docs/PUBLISHING.md">Публикация</a>
+      </p>
+    </footer>
+  </div>
+</body>
+</html>
