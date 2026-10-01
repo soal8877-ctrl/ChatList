@@ -1,11 +1,10 @@
-"""Сборка ChatList.exe и установщика с версией из version.py."""
+"""Сборка ChatList.exe и установщика Inno Setup с версией из version.py."""
 
 from __future__ import annotations
 
-import shutil
+import hashlib
 import subprocess
 import sys
-import zipfile
 from pathlib import Path
 
 import version
@@ -13,6 +12,11 @@ import version
 ROOT = Path(__file__).resolve().parent
 DIST = ROOT / "dist"
 EXE_NAME = "ChatList.exe"
+INSTALLER_ISS = ROOT / "installer.iss"
+ISCC_CANDIDATES = (
+    Path(r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"),
+    Path(r"C:\Program Files\Inno Setup 6\ISCC.exe"),
+)
 
 
 def version_tuple() -> tuple[int, int, int, int]:
@@ -23,7 +27,7 @@ def version_tuple() -> tuple[int, int, int, int]:
 
 
 def installer_name() -> str:
-    return f"ChatList-{version.__version__}-setup.zip"
+    return f"ChatList-{version.__version__}-setup.exe"
 
 
 def write_version_info(path: Path) -> None:
@@ -64,6 +68,15 @@ VSVersionInfo(
     )
 
 
+def find_iscc() -> Path:
+    for candidate in ISCC_CANDIDATES:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(
+        "Inno Setup не найден. Установите Inno Setup 6: https://jrsoftware.org/isinfo.php"
+    )
+
+
 def run_pyinstaller() -> None:
     version_info = ROOT / "version_info.txt"
     write_version_info(version_info)
@@ -88,33 +101,50 @@ def run_pyinstaller() -> None:
     subprocess.run(cmd, cwd=ROOT, check=True)
 
 
-def create_installer() -> Path:
+def run_inno_setup() -> Path:
     exe_path = DIST / EXE_NAME
     if not exe_path.exists():
         raise FileNotFoundError(f"Не найден файл сборки: {exe_path}")
+    if not INSTALLER_ISS.exists():
+        raise FileNotFoundError(f"Не найден скрипт установщика: {INSTALLER_ISS}")
+
+    iscc = find_iscc()
+    cmd = [
+        str(iscc),
+        f"/DAppVersion={version.__version__}",
+        str(INSTALLER_ISS),
+    ]
+    subprocess.run(cmd, cwd=ROOT, check=True)
 
     installer_path = DIST / installer_name()
-    if installer_path.exists():
-        installer_path.unlink()
-
-    with zipfile.ZipFile(installer_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.write(exe_path, EXE_NAME)
-        env_example = ROOT / ".env.example"
-        if env_example.exists():
-            archive.write(env_example, ".env.example")
-        readme = ROOT / "README.md"
-        if readme.exists():
-            archive.write(readme, "README.md")
-
+    if not installer_path.exists():
+        raise FileNotFoundError(f"Установщик не создан: {installer_path}")
     return installer_path
+
+
+def prepare_release_artifacts(installer_path: Path) -> None:
+    latest_installer = DIST / "ChatList-setup.exe"
+    latest_installer.write_bytes(installer_path.read_bytes())
+
+    checksums_path = DIST / "SHA256SUMS.txt"
+    lines: list[str] = []
+    for path in (DIST / EXE_NAME, installer_path, latest_installer):
+        if not path.exists():
+            continue
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        lines.append(f"{digest}  {path.name}")
+    checksums_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def main() -> None:
     run_pyinstaller()
-    installer_path = create_installer()
+    installer_path = run_inno_setup()
+    prepare_release_artifacts(installer_path)
     print(f"Сборка завершена: ChatList v{version.__version__}")
     print(f"  EXE: {DIST / EXE_NAME}")
     print(f"  Установщик: {installer_path}")
+    print(f"  Latest alias: {DIST / 'ChatList-setup.exe'}")
+    print(f"  Checksums: {DIST / 'SHA256SUMS.txt'}")
 
 
 if __name__ == "__main__":

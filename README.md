@@ -74,7 +74,7 @@ python -m unittest test_smoke.py test_prompt_assistant.py -v
 python .\create_icon.py
 ```
 
-Сборка exe и установщика `ChatList-<версия>-setup.zip`:
+Сборка exe и установщика Inno Setup `ChatList-<версия>-setup.exe`:
 
 ```powershell
 python .\build.py
@@ -83,7 +83,9 @@ python .\build.py
 Результат:
 
 - `dist\ChatList.exe` — исполняемый файл с версией в свойствах Windows
-- `dist\ChatList-<версия>-setup.zip` — установщик (архив с exe, `.env.example`, README)
+- `dist\ChatList-<версия>-setup.exe` — установщик Inno Setup (с удалением через «Программы и компоненты»)
+
+Требуется [Inno Setup 6](https://jrsoftware.org/isinfo.php).
 
 > Рядом с exe должны лежать `.env` и файл БД `chatlist.db` (создаётся при первом запуске).
 
@@ -100,6 +102,10 @@ python .\build.py
 | `logger.py` | Логирование запросов |
 | `version.py` | Версия приложения (`__version__`) |
 | `build.py` | Сборка exe и установщика |
+| `installer.iss` | Скрипт Inno Setup |
+| `release.ps1` | Подготовка артефактов Release |
+| `docs/PUBLISHING.md` | Инструкция публикации |
+| `docs/index.html` | Лендинг GitHub Pages |
 | `create_icon.py` | Генерация `app.ico` |
 | `app.ico` | Иконка приложения |
 | `DATABASE.md` | Схема БД |
@@ -111,3 +117,9 @@ python .\build.py
 - ~50 запросов в день (без пополнения баланса на $10)
 
 Актуальный список моделей: [openrouter.ai/models](https://openrouter.ai/models).
+
+## Публикация
+
+- [Инструкция: GitHub Release и GitHub Pages](docs/PUBLISHING.md)
+- [Лендинг (GitHub Pages)](https://soal8877-ctrl.github.io/ChatList/)
+- [Скачать последнюю версию](https://github.com/soal8877-ctrl/ChatList/releases/latest/download/ChatList-setup.exe)
